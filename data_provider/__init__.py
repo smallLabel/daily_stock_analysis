@@ -1,49 +1,46 @@
 # -*- coding: utf-8 -*-
 """
-===================================
-数据源策略层 - 包初始化
-===================================
+数据获取层 - 统一入口
+已重构为模块化结构
 
-本包实现策略模式管理多个数据源，实现：
-1. 统一的数据获取接口
-2. 自动故障切换
-3. 防封禁流控策略
-
-数据源优先级（动态调整）：
-【配置了 TUSHARE_TOKEN 时】
-1. TushareFetcher (Priority 0) - 🔥 最高优先级（动态提升）
-2. EfinanceFetcher (Priority 0) - 同优先级
-3. AkshareFetcher (Priority 1) - 来自 akshare 库
-4. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
-5. BaostockFetcher (Priority 3) - 来自 baostock 库
-6. YfinanceFetcher (Priority 4) - 来自 yfinance 库
-
-【未配置 TUSHARE_TOKEN 时】
-1. EfinanceFetcher (Priority 0) - 最高优先级，来自 efinance 库
-2. AkshareFetcher (Priority 1) - 来自 akshare 库
-3. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
-4. TushareFetcher (Priority 2) - 来自 tushare 库（不可用）
-5. BaostockFetcher (Priority 3) - 来自 baostock 库
-6. YfinanceFetcher (Priority 4) - 来自 yfinance 库
-
-提示：优先级数字越小越优先，同优先级按初始化顺序排列
+原始导入依然有效:
+    from data_provider.base import BaseFetcher, DataFetcherManager
+    from data_provider.akshare_fetcher import AkshareFetcher
 """
 
-from .base import BaseFetcher, DataFetcherManager
-from .efinance_fetcher import EfinanceFetcher
-from .akshare_fetcher import AkshareFetcher
-from .tushare_fetcher import TushareFetcher
-from .pytdx_fetcher import PytdxFetcher
-from .baostock_fetcher import BaostockFetcher
-from .yfinance_fetcher import YfinanceFetcher
+# 从core模块导出
+from .core import (
+    BaseFetcher,
+    DataFetcherManager,
+    DataFetchError,
+    RateLimitError,
+    DataSourceUnavailableError,
+    STANDARD_COLUMNS,
+)
 
+# 从fetchers模块导出
+from .fetchers import (
+    AkshareFetcher,
+    EfinanceFetcher,
+    TushareFetcher,
+)
+
+# 保持向后兼容 - 导出所有类到包级别
 __all__ = [
+    # 核心类
     'BaseFetcher',
     'DataFetcherManager',
-    'EfinanceFetcher',
+    
+    # 异常类
+    'DataFetchError',
+    'RateLimitError',
+    'DataSourceUnavailableError',
+    
+    # 常量
+    'STANDARD_COLUMNS',
+    
+    # 具体实现
     'AkshareFetcher',
+    'EfinanceFetcher',
     'TushareFetcher',
-    'PytdxFetcher',
-    'BaostockFetcher',
-    'YfinanceFetcher',
 ]

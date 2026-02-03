@@ -30,7 +30,7 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     """
     HTTP 请求处理器
     
-    将请求分发到路由器处理
+    将请求分发到路由器处理，同时支持静态文件服务
     """
     
     # 类级别的路由器引用
@@ -38,7 +38,70 @@ class WebRequestHandler(BaseHTTPRequestHandler):
     
     def do_GET(self) -> None:
         """处理 GET 请求"""
-        self.router.dispatch(self, "GET")
+        # 尝试静态文件服务
+        if self.path.startswith('/static/') or self.path.startswith('/web/static/') or self.path.endswith('.html'):
+            self._serve_static_file()
+        else:
+            self.router.dispatch(self, "GET")
+    
+    def _serve_static_file(self) -> None:
+        """提供静态文件服务"""
+        import os
+        from pathlib import Path
+        
+        # 去除查询参数
+        file_path = self.path.split('?')[0]
+        
+        # 确定文件路径
+        if file_path.startswith('/web/static/'):
+            # /web/static/xxx.html -> web/static/xxx.html
+            rel_path = file_path[1:]  # 去掉开头的/
+            project_root = Path(__file__).parent.parent  # 从web目录向上一级到项目根目录
+            full_path = project_root / rel_path
+        elif file_path.startswith('/static/'):
+            # 移除前缀
+            rel_path = file_path[len('/static/'):]
+            static_dir = Path(__file__).parent / 'static'
+            full_path = static_dir / rel_path
+        else:
+            # 直接访问HTML文件
+            static_dir = Path(__file__).parent / 'static'
+            full_path = static_dir / file_path.lstrip('/')
+        
+        try:
+            if not full_path.is_file():
+                self.send_error(404, f"File not found: {file_path}")
+                return
+            
+            # 读取文件
+            content = full_path.read_bytes()
+            
+            # 确定Content-Type
+            content_type = 'text/html; charset=utf-8'
+            suffix = full_path.suffix.lower()
+            if suffix == '.css':
+                content_type = 'text/css; charset=utf-8'
+            elif suffix == '.js':
+                content_type = 'application/javascript; charset=utf-8'
+            elif suffix == '.json':
+                content_type = 'application/json; charset=utf-8'
+            elif suffix in ['.jpg', '.jpeg']:
+                content_type = 'image/jpeg'
+            elif suffix == '.png':
+                content_type = 'image/png'
+            elif suffix == '.svg':
+                content_type = 'image/svg+xml'
+            
+            # 发送响应
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+            
+        except Exception as e:
+            logger.error(f"静态文件服务错误: {e}")
+            self.send_error(500, f"Server error: {str(e)}")
     
     def do_POST(self) -> None:
         """处理 POST 请求"""

@@ -20,7 +20,7 @@ import pandas as pd
 
 from src.config import get_config
 from src.search_service import SearchService
-from data_provider.base import DataFetcherManager
+from data_provider import DataFetcherManager
 
 logger = logging.getLogger(__name__)
 

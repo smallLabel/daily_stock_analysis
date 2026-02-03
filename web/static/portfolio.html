@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>持仓管理 - 股票智能分析系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header h1 {
+            color: #1a202c;
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        
+        .header .subtitle {
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+        
+        .summary-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2 ease, box-shadow 0.2s ease;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        .summary-card .label {
+            color: #718096;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        
+        .summary-card .value {
+            color: #1a202c;
+            font-size: 32px;
+            font-weight: 700;
+        }
+        
+        .summary-card .value.profit {
+            color: #10b981;
+        }
+        
+        .summary-card .value.loss {
+            color: #ef4444;
+        }
+        
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+        }
+        
+        .section {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .section-title {
+            color: #1a202c;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .positions-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .positions-table th,
+        .positions-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .positions-table th {
+            background: #f7fafc;
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        
+        .positions-table tr:hover {
+            background: #f7fafc;
+        }
+        
+        .profit-cell {
+            color: #10b981;
+            font-weight: 600;
+        }
+        
+        .loss-cell {
+            color: #ef4444;
+            font-weight: 600;
+        }
+        
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #4a5568;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s ease;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+        
+        .alert-success {
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 4px solid #10b981;
+        }
+        
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-buy {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .badge-sell {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: #a0aec0;
+        }
+        
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 640px) {
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>💼 持仓管理</h1>
+            <p class="subtitle">跟踪您的股票持仓盈亏，管理交易记录</p>
+        </div>
+        
+        <!-- 摘要卡片 -->
+        <div class="summary-cards">
+            <div class="summary-card">
+                <div class="label">持仓股票数</div>
+                <div class="value" id="totalPositions">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">持仓市值</div>
+                <div class="value" id="totalMarketValue">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">总成本</div>
+                <div class="value" id="totalCost">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">盈亏金额</div>
+                <div class="value" id="totalProfitLoss">-</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">盈亏比例</div>
+                <div class="value" id="totalProfitLossPct">-</div>
+            </div>
+        </div>
+        
+        <!-- 主内容 -->
+        <div class="main-content">
+            <!-- 持仓列表 -->
+            <div class="section">
+                <div class="section-title">📊 当前持仓</div>
+                <div id="positionsContent">
+                    <table class="positions-table">
+                        <thead>
+                            <tr>
+                                <th>股票代码</th>
+                                <th>股票名称</th>
+                                <th>持仓数量</th>
+                                <th>平均成本</th>
+                                <th>当前价格</th>
+                                <th>市值</th>
+                                <th>盈亏金额</th>
+                                <th>盈亏比例</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positionsTableBody">
+                            <!-- 动态填充 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- 添加交易 -->
+            <div class="section">
+                <div class="section-title">➕ 添加交易</div>
+                <div id="alertContainer"></div>
+                <form id="transactionForm">
+                    <div class="form-group">
+                        <label>股票代码</label>
+                        <input type="text" name="stock_code" placeholder="600519" required>
+                    </div>
+                    <div class="form-group">
+                        <label>股票名称</label>
+                        <input type="text" name="stock_name" placeholder="贵州茅台">
+                    </div>
+                    <div class="form-group">
+                        <label>交易类型</label>
+                        <select name="type" required>
+                            <option value="buy">买入</option>
+                            <option value="sell">卖出</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>数量(股)</label>
+                        <input type="number" name="quantity" placeholder="100" step="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>价格</label>
+                        <input type="number" name="price" placeholder="1850.50" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label>手续费</label>
+                        <input type="number" name="commission" placeholder="5.0" step="0.01" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label>印花税</label>
+                        <input type="number" name="tax" placeholder="0" step="0.01" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label>备注</label>
+                        <textarea name="notes" rows="2" placeholder="建仓"></textarea>
+                    </div>
+                    <div class="btn-group">
+                        <button type="submit" class="btn btn-primary">提交交易</button>
+                        <button type="button" class="btn btn-secondary" onclick="loadData()">刷新数据</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 加载持仓数据
+        async function loadData() {
+            try {
+                const response = await fetch('/api/portfolio/summary');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const data = result.data;
+                    
+                    // 更新摘要卡片
+                    document.getElementById('totalPositions').textContent = data.total_positions || 0;
+                    document.getElementById('totalMarketValue').textContent = formatMoney(data.total_market_value);
+                    document.getElementById('totalCost').textContent = formatMoney(data.total_cost);
+                    
+                    const profitLossElem = document.getElementById('totalProfitLoss');
+                    profitLossElem.textContent = formatMoney(data.total_profit_loss);
+                    profitLossElem.className = 'value' + (data.total_profit_loss >= 0 ? ' profit' : ' loss');
+                    
+                    const profitLossPctElem = document.getElementById('totalProfitLossPct');
+                    profitLossPctElem.textContent = formatPercent(data.total_profit_loss_pct);
+                    profitLossPctElem.className = 'value' + (data.total_profit_loss_pct >= 0 ? ' profit' : ' loss');
+                    
+                    // 更新持仓列表
+                    renderPositions(data.positions);
+                } else {
+                    showAlert('加载数据失败: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 渲染持仓列表
+        function renderPositions(positions) {
+            const tbody = document.getElementById('positionsTableBody');
+            
+            if (!positions || positions.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:48px;color:#a0aec0;">暂无持仓记录</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = positions.map(pos => `
+                <tr>
+                    <td>${pos.stock_code}</td>
+                    <td>${pos.stock_name}</td>
+                    <td>${pos.quantity}</td>
+                    <td>¥${pos.avg_cost.toFixed(2)}</td>
+                    <td>¥${pos.current_price.toFixed(2)}</td>
+                    <td>¥${pos.market_value.toFixed(2)}</td>
+                    <td class="${pos.profit_loss >= 0 ? 'profit-cell' : 'loss-cell'}">
+                        ${pos.profit_loss >= 0 ? '+' : ''}¥${pos.profit_loss.toFixed(2)}
+                    </td>
+                    <td class="${pos.profit_loss_pct >= 0 ? 'profit-cell' : 'loss-cell'}">
+                        ${pos.profit_loss_pct >= 0 ? '+' : ''}${pos.profit_loss_pct.toFixed(2)}%
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // 提交交易
+        document.getElementById('transactionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const params = new URLSearchParams(formData);
+            
+            try {
+                const response = await fetch('/api/portfolio/transaction', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: params
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert('交易记录已添加', 'success');
+                    e.target.reset();
+                    loadData(); // 重新加载数据
+                } else {
+                    showAlert('添加失败: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showAlert('网络错误: ' + error.message, 'error');
+            }
+        });
+        
+        // 显示提示
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
+            container.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => { container.innerHTML = ''; }, 5000);
+        }
+        
+        // 格式化金额
+        function formatMoney(value) {
+            if (!value && value !== 0) return '-';
+            const abs = Math.abs(value);
+            const sign = value < 0 ? '-' : '';
+            if (abs >= 1e8) return sign + '¥' + (abs / 1e8).toFixed(2) + '亿';
+            if (abs >= 1e4) return sign + '¥' + (abs / 1e4).toFixed(2) + '万';
+            return sign + '¥' + abs.toFixed(2);
+        }
+        
+        // 格式化百分比
+        function formatPercent(value) {
+            if (!value && value !== 0) return '-';
+            const sign = value >= 0 ? '+' : '';
+            return sign + value.toFixed(2) + '%';
+        }
+        
+        // 页面加载时获取数据
+        loadData();
+        
+        // 定时刷新(每30秒)
+        setInterval(loadData, 30000);
+    </script>
+</body>
+</html>

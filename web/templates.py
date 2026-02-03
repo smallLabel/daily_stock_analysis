@@ -918,6 +918,22 @@ def render_config_page(
   <div class="container">
     <h2>📈 A股/港股/美股分析</h2>
     
+    <!-- 导航菜单 -->
+    <div style="margin: 1.5rem 0; padding: 1rem; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 0.75rem;">
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+        <span style="font-weight: 600; color: #2563eb;">🧭 快速导航：</span>
+        <a href="/" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
+          🏠 首页
+        </a>
+        <a href="/web/static/sector_picker.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
+          📊 板块选股
+        </a>
+        <a href="/web/static/portfolio.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
+          💼 持仓管理
+        </a>
+      </div>
+    </div>
+    
     <!-- 快速分析区域 -->
     <div class="analysis-section" style="margin-top: 0; padding-top: 0; border-top: none;">
       <div class="form-group" style="margin-bottom: 0.75rem;">
@@ -961,12 +977,20 @@ def render_config_page(
     </form>
     
     <div class="footer">
-      <p>API: <code>/health</code> · <code>/analysis?code=xxx</code> · <code>/tasks</code></p>
+      <p>API: <code>/health</code> · <code>/analysis?code=xxx</code> · <code>/tasks</code> · <code>/api/sector-analysis</code></p>
     </div>
   </div>
   
   {toast_html}
   {analysis_js}
+  
+  <style>
+    /* 导航链接悬停效果 */
+    a[href]:hover {{
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15) !important;
+    }}
+  </style>
 """
     
     page = render_base(

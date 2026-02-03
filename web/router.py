@@ -322,6 +322,50 @@ def create_default_router() -> Router:
         "查询任务状态"
     )
     
+    # === 持仓管理 API 路由 ===
+    router.register(
+        "/api/portfolio/summary", "GET",
+        lambda q: api_handler.handle_portfolio_summary(q),
+        "获取持仓摘要"
+    )
+    
+    router.register(
+        "/api/portfolio/transaction", "POST",
+        lambda form: api_handler.handle_add_transaction(form),
+        "添加交易记录"
+    )
+    
+    router.register(
+        "/api/portfolio/transactions", "GET",
+        lambda q: api_handler.handle_get_transactions(q),
+        "获取交易记录列表"
+    )
+    
+    router.register(
+        "/api/portfolio/update-prices", "POST",
+        lambda form: api_handler.handle_update_prices(form),
+        "更新持仓价格"
+    )
+    
+    router.register(
+        "/api/portfolio/set-risk", "POST",
+        lambda form: api_handler.handle_set_risk_params(form),
+        "设置止盈止损"
+    )
+    
+    # === 板块选股 API 路由 ===
+    router.register(
+        "/api/sector-analysis", "GET",
+        lambda q: api_handler.handle_sector_analysis(q),
+        "板块选股分析"
+    )
+
+    router.register(
+        "/api/history/performance", "GET",
+        lambda q: api_handler.handle_history_performance(),
+        "历史战绩回顾"
+    )
+    
     # === Bot Webhook 路由 ===
     # 注意：Bot Webhook 路由在 dispatch_post 中特殊处理
     # 这里只是为了在路由列表中显示

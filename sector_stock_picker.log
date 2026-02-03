@@ -1,0 +1,19 @@
+2026-02-03 10:16:37,682 | INFO     | __main__             | ================================================================================
+2026-02-03 10:16:37,682 | INFO     | __main__             | 开始运行板块选股功能
+2026-02-03 10:16:37,682 | INFO     | __main__             | ================================================================================
+2026-02-03 10:16:37,776 | INFO     | data_provider.tushare_fetcher | Tushare API 初始化成功
+2026-02-03 10:16:37,776 | INFO     | data_provider.tushare_fetcher | ✅ 检测到 TUSHARE_TOKEN 且 API 初始化成功，Tushare 数据源优先级提升为最高 (Priority -1)
+2026-02-03 10:16:37,776 | INFO     | data_provider.base   | 已初始化 6 个数据源（按优先级）: TushareFetcher(P-1), EfinanceFetcher(P0), AkshareFetcher(P1), PytdxFetcher(P2), BaostockFetcher(P3), YfinanceFetcher(P4)
+2026-02-03 10:16:37,776 | INFO     | src.sector_stock_picker | ============================================================
+2026-02-03 10:16:37,777 | INFO     | src.sector_stock_picker | 开始执行完整的板块选股分析
+2026-02-03 10:16:37,777 | INFO     | src.sector_stock_picker | ============================================================
+2026-02-03 10:16:37,777 | INFO     | src.sector_stock_picker | 开始分析板块潜力...
+2026-02-03 10:16:50,242 | ERROR    | data_provider.akshare_fetcher | [Akshare] 获取板块排行失败: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+2026-02-03 10:16:50,243 | WARNING  | src.sector_stock_picker | 未能获取板块数据
+2026-02-03 10:16:50,243 | INFO     | src.sector_stock_picker | ============================================================
+2026-02-03 10:16:50,243 | INFO     | src.sector_stock_picker | 板块选股分析完成
+2026-02-03 10:16:50,243 | INFO     | src.sector_stock_picker | ============================================================
+2026-02-03 10:16:50,277 | INFO     | __main__             | 报告已保存到: E:\project\daily_stock_analysis\reports\sector_stock_report_2026-02-03_10-16-50.txt
+2026-02-03 10:16:50,278 | INFO     | __main__             | ================================================================================
+2026-02-03 10:16:50,278 | INFO     | __main__             | 板块选股功能运行完成
+2026-02-03 10:16:50,278 | INFO     | __main__             | ================================================================================
