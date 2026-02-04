@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>输入测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        input {
+            padding: 10px;
+            font-size: 16px;
+            width: 200px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .debug-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 股票代码输入测试</h1>
+    
+    <div class="test-section">
+        <h3>测试输入框</h3>
+        <input 
+            type="text" 
+            id="test_input" 
+            placeholder="输入股票代码"
+            style="text-transform: uppercase;"
+        >
+        <button id="test_btn" disabled>🚀 分析</button>
+        
+        <div class="debug-info" id="debug_info">
+            等待输入...
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试用例</h3>
+        <p>请尝试输入以下代码，按钮应该会启用：</p>
+        <ul>
+            <li><strong>600519</strong> - A股（6位数字）</li>
+            <li><strong>HK00700</strong> - 港股（HK+5位数字）</li>
+            <li><strong>AAPL</strong> - 美股（1-5个字母）</li>
+            <li><strong>BRK.B</strong> - 美股（带点号）</li>
+        </ul>
+    </div>
+
+    <script>
+        const input = document.getElementById('test_input');
+        const btn = document.getElementById('test_btn');
+        const debugInfo = document.getElementById('debug_info');
+        
+        input.addEventListener('input', function(e) {
+            updateButtonState();
+        });
+        
+        function updateButtonState() {
+            const rawValue = input.value;
+            const code = input.value.trim().toUpperCase();
+            
+            // 正则表达式测试
+            const isAStock = /^\d{6}$/.test(code);
+            const isHKStock = /^HK\d{5}$/.test(code);
+            const isUSStock = /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/.test(code);
+            
+            const isValid = isAStock || isHKStock || isUSStock;
+            
+            // 更新调试信息
+            debugInfo.innerHTML = `
+                原始值: "${rawValue}"<br>
+                处理后: "${code}"<br>
+                长度: ${code.length}<br>
+                是A股: ${isAStock}<br>
+                是港股: ${isHKStock}<br>
+                是美股: ${isUSStock}<br>
+                <strong>按钮状态: ${isValid ? '✅ 启用' : '❌ 禁用'}</strong>
+            `;
+            
+            btn.disabled = !isValid;
+        }
+        
+        btn.addEventListener('click', function() {
+            alert('按钮点击成功！代码：' + input.value.trim().toUpperCase());
+        });
+        
+        // 初始化
+        updateButtonState();
+    </script>
+</body>
+</html>

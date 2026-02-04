@@ -138,6 +138,15 @@ class BaseFetcher(ABC):
         """
         return None
 
+    def get_all_stocks_snapshot(self) -> Optional[pd.DataFrame]:
+        """
+        获取全市场所有股票的实时快照
+        
+        Returns:
+            DataFrame: 包含 code, name, price, change_pct, change_60d, total_mv 等列
+        """
+        return None
+
     def get_daily_data(
         self,
         stock_code: str, 

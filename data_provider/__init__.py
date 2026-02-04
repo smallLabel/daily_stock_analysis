@@ -23,6 +23,9 @@ from .fetchers import (
     AkshareFetcher,
     EfinanceFetcher,
     TushareFetcher,
+    BaostockFetcher,
+    PytdxFetcher,
+    YfinanceFetcher,
 )
 
 # 保持向后兼容 - 导出所有类到包级别
@@ -43,4 +46,7 @@ __all__ = [
     'AkshareFetcher',
     'EfinanceFetcher',
     'TushareFetcher',
+    'BaostockFetcher',
+    'PytdxFetcher',
+    'YfinanceFetcher',
 ]

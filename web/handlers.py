@@ -458,6 +458,320 @@ class ApiHandler:
                 {"success": False, "error": str(e)},
                 status=HTTPStatus.INTERNAL_SERVER_ERROR
             )
+    
+    # ============================================================
+    # 自选股管理 API
+    # ============================================================
+    
+    def handle_get_watchlist(self) -> Response:
+        """
+        获取自选股列表 GET /api/watchlist
+        
+        返回:
+            {
+                "success": true,
+                "data": [
+                    {"id": 1, "stock_code": "600519", "stock_name": "贵州茅台", ...},
+                    ...
+                ]
+            }
+        """
+        try:
+            from src.storage import get_db
+            
+            db = get_db()
+            stocks = db.get_watchlist_stocks()
+            
+            return JsonResponse({
+                "success": True,
+                "data": [s.to_dict() for s in stocks],
+                "count": len(stocks)
+            })
+        except Exception as e:
+            logger.error(f"获取自选股列表失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_add_watchlist_stock(self, form_data: Dict[str, list]) -> Response:
+        """
+        添加自选股 POST /api/watchlist/add
+        
+        Args:
+            form_data: {
+                "stock_code": "600519",
+                "stock_name": "贵州茅台" (可选)
+            }
+        """
+        try:
+            from src.storage import get_db
+            
+            stock_code = form_data.get("stock_code", [""])[0].strip()
+            stock_name = form_data.get("stock_name", [""])[0].strip()
+            
+            if not stock_code:
+                return JsonResponse(
+                    {"success": False, "error": "股票代码不能为空"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            # 验证股票代码格式
+            if not re.match(r'^\d{6}$', stock_code):
+                return JsonResponse(
+                    {"success": False, "error": "无效的股票代码格式（需要6位数字）"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            db = get_db()
+            
+            # 检查是否已存在
+            existing_stocks = db.get_watchlist_stocks()
+            existing_codes = set(s.stock_code for s in existing_stocks)
+            
+            if stock_code in existing_codes:
+                return JsonResponse({
+                    "success": False,
+                    "error": f"{stock_code} 已存在于自选股中",
+                    "duplicate": True
+                })
+            
+            success = db.save_watchlist_stock(stock_code, stock_name)
+            
+            if success:
+                return JsonResponse({
+                    "success": True,
+                    "message": f"已添加 {stock_code}"
+                })
+            else:
+                return JsonResponse(
+                    {"success": False, "error": "保存失败"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            logger.error(f"添加自选股失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_remove_watchlist_stock(self, query: Dict[str, list]) -> Response:
+        """
+        删除自选股 GET /api/watchlist/remove?code=600519
+        """
+        try:
+            from src.storage import get_db
+            
+            stock_code = query.get("code", [""])[0].strip()
+            
+            if not stock_code:
+                return JsonResponse(
+                    {"success": False, "error": "股票代码不能为空"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            db = get_db()
+            success = db.delete_watchlist_stock(stock_code)
+            
+            if success:
+                return JsonResponse({
+                    "success": True,
+                    "message": f"已删除 {stock_code}"
+                })
+            else:
+                return JsonResponse(
+                    {"success": False, "error": "删除失败"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            logger.error(f"删除自选股失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_clear_watchlist(self) -> Response:
+        """
+        清空自选股 GET /api/watchlist/clear
+        """
+        try:
+            from src.storage import get_db
+            
+            db = get_db()
+            success = db.clear_watchlist()
+            
+            if success:
+                return JsonResponse({
+                    "success": True,
+                    "message": "已清空自选股"
+                })
+            else:
+                return JsonResponse(
+                    {"success": False, "error": "清空失败"},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR
+                )
+        except Exception as e:
+            logger.error(f"清空自选股失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_get_config(self) -> Response:
+        """
+        获取当前配置 GET /api/config
+        
+        返回:
+            {
+                "success": true,
+                "data": {
+                    "stock_list": "600519,000001",
+                    ...
+                }
+            }
+        """
+        try:
+            config_service = get_config_service()
+            stock_list = config_service.get_stock_list()
+            
+            return JsonResponse({
+                "success": True,
+                "data": {
+                    "stock_list": stock_list
+                }
+            })
+        except Exception as e:
+            logger.error(f"获取配置失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_import_watchlist(self, form_data: Dict[str, list]) -> Response:
+        """
+        批量导入自选股 POST /api/watchlist/import
+        
+        Args:
+            form_data: {
+                "stock_codes": "600519,000001,000858"
+            }
+        """
+        try:
+            from src.storage import get_db
+            
+            stock_codes_str = form_data.get("stock_codes", [""])[0]
+            
+            if not stock_codes_str or not stock_codes_str.strip():
+                return JsonResponse(
+                    {"success": False, "error": "股票代码不能为空"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            # 解析股票代码列表
+            stock_codes = [code.strip() for code in stock_codes_str.replace("\n", ",").split(",") if code.strip()]
+            stock_codes = [code for code in stock_codes if re.match(r'^\d{6}$', code)]
+            
+            if not stock_codes:
+                return JsonResponse(
+                    {"success": False, "error": "没有有效的股票代码（需要6位数字）"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            db = get_db()
+            
+            # 获取已存在的股票
+            existing_stocks = db.get_watchlist_stocks()
+            existing_codes = set(s.stock_code for s in existing_stocks)
+            
+            # 过滤出需要新增的股票（去重）
+            new_codes = [code for code in stock_codes if code not in existing_codes]
+            duplicate_codes = [code for code in stock_codes if code in existing_codes]
+            
+            if new_codes:
+                success = db.save_watchlist_stocks(new_codes)
+                if not success:
+                    return JsonResponse(
+                        {"success": False, "error": "导入失败"},
+                        status=HTTPStatus.INTERNAL_SERVER_ERROR
+                    )
+            
+            # 构建返回消息
+            message_parts = []
+            if new_codes:
+                message_parts.append(f"新增 {len(new_codes)} 只")
+            if duplicate_codes:
+                message_parts.append(f"跳过 {len(duplicate_codes)} 只重复")
+            
+            if not message_parts:
+                return JsonResponse({
+                    "success": True,
+                    "message": "所有股票都已存在于自选股中",
+                    "imported_count": 0,
+                    "duplicate_count": len(duplicate_codes),
+                    "duplicate_codes": duplicate_codes
+                })
+            
+            return JsonResponse({
+                "success": True,
+                "message": "，".join(message_parts),
+                "imported_count": len(new_codes),
+                "duplicate_count": len(duplicate_codes),
+                "duplicate_codes": duplicate_codes[:10]  # 只返回前10个
+            })
+            
+        except Exception as e:
+            logger.error(f"导入自选股失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
+    
+    def handle_sync_watchlist_names(self, form_data: Dict[str, list]) -> Response:
+        """
+        同步自选股名称 POST /api/watchlist/sync-names
+        
+        Args:
+            form_data: {
+                "names": '{"600519": "贵州茅台", "000001": "平安银行"}'
+            }
+        """
+        try:
+            import json
+            from src.storage import get_db
+            
+            names_json = form_data.get("names", ["{}"])[0]
+            name_mapping = json.loads(names_json)
+            
+            if not name_mapping:
+                return JsonResponse(
+                    {"success": False, "error": "名称映射数据为空"},
+                    status=HTTPStatus.BAD_REQUEST
+                )
+            
+            db = get_db()
+            updated_count = 0
+            
+            for stock_code, stock_name in name_mapping.items():
+                if db.update_watchlist_stock_name(stock_code, stock_name):
+                    updated_count += 1
+            
+            return JsonResponse({
+                "success": True,
+                "message": f"已更新 {updated_count} 只股票的名称",
+                "updated_count": updated_count
+            })
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": f"JSON格式错误: {str(e)}"},
+                status=HTTPStatus.BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"同步自选股名称失败: {e}")
+            return JsonResponse(
+                {"success": False, "error": str(e)},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR
+            )
 
     def handle_history_performance(self) -> JsonResponse:
         """获取历史推荐表现（战绩回顾）"""
@@ -683,7 +997,7 @@ class ApiHandler:
                 "error": str(ie),
                 "suggestion": "请检查依赖包是否正确安装：pip install -r requirements.txt"
             }, status=HTTPStatus.INTERNAL_SERVER_ERROR)
-            
+                        
         except Exception as e:
             logger.error(f"板块选股分析失败: {e}", exc_info=True)
             return JsonResponse({
@@ -693,6 +1007,131 @@ class ApiHandler:
                 "details": error_details,
                 "suggestion": "请查看服务器日志获取详细信息"
             }, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_search_sector(self, query: Dict[str, list]) -> Response:
+        """
+        搜索板块 GET /api/sector/search?keyword=xxx
+        """
+        try:
+            from data_provider import DataFetcherManager
+            from src.selection import SectorStockPicker
+            
+            keyword = query.get("keyword", [""])[0].strip()
+            if not keyword:
+                return JsonResponse({"success": False, "data": []})
+                
+            fetcher = DataFetcherManager().get_fetcher("AkshareFetcher")
+            if not fetcher:
+                # 尝试直接初始化
+                from data_provider.fetchers.akshare_fetcher import AkshareFetcher
+                fetcher = AkshareFetcher()
+                
+            results = fetcher.search_board(keyword)
+            return JsonResponse({"success": True, "data": results})
+            
+        except Exception as e:
+            logger.error(f"搜索板块失败: {e}")
+            return JsonResponse({"success": False, "error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_get_sector_stocks(self, query: Dict[str, list]) -> Response:
+        """
+        获取板块成分股 GET /api/sector/stocks?sector=xxx
+        """
+        try:
+            from data_provider import DataFetcherManager
+            
+            sector = query.get("sector", [""])[0].strip()
+            if not sector:
+                 return JsonResponse({"success": False, "error": "sector参数为空"}, status=HTTPStatus.BAD_REQUEST)
+                 
+            fetcher = DataFetcherManager().get_fetcher("AkshareFetcher")
+            if not fetcher:
+                from data_provider.fetchers.akshare_fetcher import AkshareFetcher
+                fetcher = AkshareFetcher()
+                
+            stocks = fetcher.get_sector_stocks(sector)
+            return JsonResponse({"success": True, "data": stocks})
+            
+        except Exception as e:
+            logger.error(f"获取板块成分股失败: {e}")
+            return JsonResponse({"success": False, "error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def handle_run_backtest(self, form_data: Dict[str, list]) -> Response:
+        """
+        运行回测与健康度评分 POST /api/backtest/run
+        
+        Args:
+            form_data: {
+                "codes": "600519,000001",
+                "strategy": "ma" | "rps" | "div"
+            }
+        """
+        try:
+            import pandas as pd
+            from src.backtest import SimpleBacktester
+            from src.health_rater import StockHealthRater
+            from src.core.pipeline import StockAnalysisPipeline
+            
+            codes_str = form_data.get("codes", [""])[0]
+            strategy = form_data.get("strategy", ["ma"])[0]
+            
+            if not codes_str:
+                return JsonResponse({"success": False, "error": "codes为空"}, status=HTTPStatus.BAD_REQUEST)
+                
+            stock_codes = [c.strip() for c in codes_str.split(',') if c.strip()]
+            if not stock_codes:
+                return JsonResponse({"success": False, "error": "无有效股票代码"}, status=HTTPStatus.BAD_REQUEST)
+                
+            pipeline = StockAnalysisPipeline()
+            backtester = SimpleBacktester()
+            health_rater = StockHealthRater()
+            
+            results = []
+            
+            for code in stock_codes:
+                try:
+                    # 抓取数据 (近一年)
+                    # fetch_and_save_stock_data 已经改为获取365天
+                    # 这里复用 pipeline 逻辑
+                    success, msg = pipeline.fetch_and_save_stock_data(code)
+                    if not success:
+                        logger.warning(f"获取数据失败 {code}: {msg}")
+                        continue
+                        
+                    context = pipeline.db.get_analysis_context(code)
+                    if not context or 'raw_data' not in context:
+                        continue
+                        
+                    raw_data = context['raw_data']
+                    df = pd.DataFrame(raw_data)
+                    
+                    # 运行回测 & 评分
+                    bt_res = backtester.run_strategy(df, strategy_type=strategy)
+                    health_res = health_rater.evaluate(df, strategy_type=strategy)
+                    
+                    if bt_res and health_res:
+                        results.append({
+                            'code': code,
+                            'name': context.get('stock_name', code),
+                            'health_score': health_res['total_score'],
+                            'annualized_return': bt_res['annualized_return'],
+                            'max_drawdown': bt_res['max_drawdown'],
+                            'sharpe_ratio': bt_res['sharpe_ratio'],
+                            'latest_signal': bt_res['latest_signal'],
+                            # 简化 equity_curve 以减少传输量 (可以只传最近100点或采样)
+                            'equity_curve': bt_res['equity_curve'][-60:] if len(bt_res['equity_curve']) > 60 else bt_res['equity_curve']
+                        })
+                except Exception as inner_e:
+                    logger.error(f"处理单股 {code} 失败: {inner_e}")
+            
+            # 排序
+            results.sort(key=lambda x: x['health_score'], reverse=True)
+            
+            return JsonResponse({"success": True, "results": results})
+            
+        except Exception as e:
+            logger.error(f"批量回测失败: {e}")
+            return JsonResponse({"success": False, "error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
 
 

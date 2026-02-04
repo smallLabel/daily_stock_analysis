@@ -198,13 +198,25 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--webui',
         action='store_true',
-        help='启动本地配置 WebUI'
+        help='启动本地配置 WebUI（仅启动服务，不自动分析）'
     )
     
     parser.add_argument(
         '--webui-only',
         action='store_true',
         help='仅启动 WebUI 服务，不自动执行分析（通过 /analysis API 手动触发）'
+    )
+    
+    parser.add_argument(
+        '--pick-stocks',
+        action='store_true',
+        help='执行智能选股（板块+RPS+题材）'
+    )
+
+    parser.add_argument(
+        '--interactive',
+        action='store_true',
+        help='进入交互式板块回测模式'
     )
     
     return parser.parse_args()
@@ -375,28 +387,39 @@ def main() -> int:
     
     # === 启动 WebUI (如果启用) ===
     # 优先级: 命令行参数 > 配置文件
-    start_webui = (args.webui or args.webui_only or config.webui_enabled) and os.getenv("GITHUB_ACTIONS") != "true"
+    # WebUI 模式：仅启动服务，不自动执行分析
+    start_webui = (args.webui or config.webui_enabled) and os.getenv("GITHUB_ACTIONS") != "true"
     
     if start_webui:
         try:
-            from webui import run_server_in_thread
-            run_server_in_thread(host=config.webui_host, port=config.webui_port)
+            from nicegui import ui
+            import web.main_ui  # 导入模块会执行全局UI构建代码
+            
+            # 启动 Bot Stream 客户端
             start_bot_stream_clients(config)
+            
+            logger.info("=" * 60)
+            logger.info("WebUI 模式已启动")
+            logger.info(f"访问地址: http://{config.webui_host}:{config.webui_port}")
+            logger.info("等待用户输入数据并触发分析...")
+            logger.info("按 Ctrl+C 退出...")
+            logger.info("=" * 60)
+            
+            # 启动服务器
+            ui.run(
+                title='股票每日分析',
+                dark=True,
+                host=config.webui_host,
+                port=config.webui_port,
+                show=False  # 不自动打开浏览器
+            )
+            
+            return 0
+            
         except Exception as e:
             logger.error(f"启动 WebUI 失败: {e}")
-    
-    # === 仅 WebUI 模式：不自动执行分析 ===
-    if args.webui_only:
-        logger.info("模式: 仅 WebUI 服务")
-        logger.info(f"WebUI 运行中: http://{config.webui_host}:{config.webui_port}")
-        logger.info("通过 /analysis?code=xxx 接口手动触发分析")
-        logger.info("按 Ctrl+C 退出...")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("\n用户中断，程序退出")
-        return 0
+            # WebUI 启动失败时继续执行分析
+            pass
 
     try:
         # 模式1: 仅大盘复盘
@@ -429,6 +452,52 @@ def main() -> int:
                 search_service=search_service,
                 send_notification=not args.no_notify
             )
+            return 0
+        
+        # 模式4: 智能选股
+        if args.pick_stocks:
+            logger.info("模式: 智能选股 (板块+RPS+题材)")
+            from src.selection import SectorStockPicker
+            
+            # 初始化搜索服务
+            search_service = None
+            if config.bocha_api_keys or config.tavily_api_keys or config.serpapi_keys:
+                search_service = SearchService(
+                    bocha_keys=config.bocha_api_keys,
+                    tavily_keys=config.tavily_api_keys,
+                    serpapi_keys=config.serpapi_keys
+                )
+                
+            picker = SectorStockPicker(search_service=search_service)
+            
+            try:
+                results = picker.run_full_analysis()
+                
+                # 简单打印结果
+                logger.info("\n========== 选股结果 ==========")
+                
+                recommendations = results.get('recommendations_by_sector', {})
+                if not recommendations:
+                    logger.info("未筛选出符合条件的股票")
+                
+                for category, stocks in recommendations.items():
+                    logger.info(f"\n【{category}】")
+                    for stock in stocks[:10]: # 显示前10只
+                        score = stock.get('signal_score', 0)
+                        score_str = f"评分:{score}" if score else ""
+                        reasons = ",".join(stock.get('reasons', [])[:2])
+                        logger.info(f"  - {stock.get('name')}({stock.get('code')}) {score_str} [{reasons}]")
+                        
+            except Exception as e:
+                logger.error(f"选股过程发生错误: {e}", exc_info=True)
+                
+            return 0
+
+        # 模式5: 交互式板块回测
+        if args.interactive:
+            from src.interactive_runner import InteractiveRunner
+            runner = InteractiveRunner()
+            runner.run_interaction()
             return 0
         
         # 模式2: 定时任务模式

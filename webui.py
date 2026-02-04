@@ -4,28 +4,28 @@
 WebUI 入口文件 (向后兼容)
 ===================================
 
-本文件保持向后兼容，实际实现已迁移到 web/ 包
+本文件保持向后兼容，实际实现已迁移到 NiceGUI
 
-结构说明:
+架构说明：
     web/
-    ├── __init__.py    - 包初始化
-    ├── server.py      - HTTP 服务器
-    ├── router.py      - 路由分发
-    ├── handlers.py    - 请求处理器
-    ├── services.py    - 业务服务层
-    └── templates.py   - HTML 模板
+    ├── api.py         - NiceGUI API 端点层
+    ├── main_ui.py     - NiceGUI 主入口（推荐使用）
+    ├── services.py    - 业务服务层（复用）
+    ├── theme.py       - 主题配置
+    ├── server.py      - HTTP 服务器（旧版，已弃用）
+    ├── router.py      - 路由分发（旧版，已弃用）
+    ├── handlers.py    - 请求处理器（旧版，已弃用）
+    └── templates.py   - HTML 模板（旧版，已弃用）
 
-API Endpoints:
-  GET  /              - 配置页面
-  GET  /health        - 健康检查
-  GET  /analysis?code=xxx - 触发单只股票异步分析
-  GET  /tasks         - 查询任务列表
-  GET  /task?id=xxx   - 查询任务状态
-  POST /update        - 更新配置
-
-Usage:
-  python webui.py
-  WEBUI_HOST=0.0.0.0 WEBUI_PORT=8000 python webui.py
+使用方式：
+    # 推荐方式：使用 NiceGUI
+    python web/main_ui.py
+    
+    # 向后兼容：使用本文件
+    python webui.py
+    
+    # 命令行参数
+    WEBUI_HOST=0.0.0.0 WEBUI_PORT=8000 python webui.py
 """
 
 from __future__ import annotations
@@ -34,35 +34,9 @@ import os
 import logging
 
 # 从 web 包导入（新架构）
-from web.server import WebServer, run_server_in_thread, run_server
-from web.router import Router, get_router
-from web.services import ConfigService, AnalysisService, get_config_service, get_analysis_service
-from web.handlers import PageHandler, ApiHandler
-from web.templates import render_config_page, render_error_page
+from nicegui import ui
 
 logger = logging.getLogger(__name__)
-
-# 导出所有公共接口（保持向后兼容）
-__all__ = [
-    # 服务器
-    'WebServer',
-    'run_server_in_thread',
-    'run_server',
-    # 路由
-    'Router',
-    'get_router',
-    # 服务
-    'ConfigService',
-    'AnalysisService',
-    'get_config_service',
-    'get_analysis_service',
-    # 处理器
-    'PageHandler',
-    'ApiHandler',
-    # 模板
-    'render_config_page',
-    'render_error_page',
-]
 
 
 def _start_bot_stream_clients() -> None:
@@ -113,26 +87,30 @@ def main() -> int:
     port = int(os.getenv("WEBUI_PORT", "8000"))
     
     print(f"WebUI running: http://{host}:{port}")
-    print("API Endpoints:")
-    print("  GET  /              - 配置页面")
-    print("  GET  /health        - 健康检查")
-    print("  GET  /analysis?code=xxx - 触发分析")
-    print("  GET  /tasks         - 任务列表")
-    print("  GET  /task?id=xxx   - 任务状态")
-    print("  POST /update        - 更新配置")
+    print("使用 NiceGUI 框架")
     print()
-    print("Bot Webhooks:")
-    print("  POST /bot/feishu    - 飞书机器人")
-    print("  POST /bot/dingtalk  - 钉钉机器人")
-    print("  POST /bot/wecom     - 企业微信机器人")
-    print("  POST /bot/telegram  - Telegram 机器人")
+    print("功能:")
+    print("  - 个股分析")
+    print("  - 自选股管理")
+    print("  - 持仓管理")
+    print("  - 分析记录查询")
     print()
     
     # 启动 Bot Stream 客户端（如果配置了）
     _start_bot_stream_clients()
     
+    # 导入 main_ui 模块会执行全局UI构建代码
+    import web.main_ui
+    
+    # 启动服务器
     try:
-        run_server(host=host, port=port)
+        ui.run(
+            title='股票每日分析',
+            dark=True,
+            host=host,
+            port=port,
+            show=False
+        )
     except KeyboardInterrupt:
         pass
     

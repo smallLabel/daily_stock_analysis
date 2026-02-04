@@ -38,6 +38,42 @@ except ImportError:
         rsi = 100 - (100 / (1 + rs))
         return rsi
 
+    def calculate_bollinger(series, length=20, std_dev=2):
+        sma = series.rolling(window=length).mean()
+        std = series.rolling(window=length).std()
+        upper = sma + (std * std_dev)
+        lower = sma - (std * std_dev)
+        return pd.DataFrame({'BBM': sma, 'BBU': upper, 'BBL': lower})
+
+    def calculate_kdj(df, k_period=9, d_period=3, j_period=3):
+        low_min = df['low'].rolling(window=k_period).min()
+        high_max = df['high'].rolling(window=k_period).max()
+        
+        rsv = (df['close'] - low_min) / (high_max - low_min) * 100
+        # SMA for K and D using alpha=1/3 (period=3)
+        # Note: Standard KDJ uses Wilder's Smoothing or similar, here effectively EMA
+        # But commonly: K = 2/3*PrevK + 1/3*RSV
+        
+        k_values = []
+        d_values = []
+        k = 50
+        d = 50
+        
+        for i in range(len(df)):
+            if pd.isna(rsv.iloc[i]):
+                k_values.append(np.nan)
+                d_values.append(np.nan)
+            else:
+                k = (2/3) * k + (1/3) * rsv.iloc[i]
+                d = (2/3) * d + (1/3) * k
+                k_values.append(k)
+                d_values.append(d)
+                
+        k_series = pd.Series(k_values, index=df.index)
+        d_series = pd.Series(d_values, index=df.index)
+        j_series = 3 * k_series - 2 * d_series
+        return pd.DataFrame({'K': k_series, 'D': d_series, 'J': j_series})
+
 @dataclass
 class TradeSignal:
     """交易信号"""
@@ -289,4 +325,173 @@ class MaTrendStrategy(BaseStrategy):
         
         signals[crossover] = 1
         signals[crossunder] = -1
+        return signals
+
+class BollingerStrategy(BaseStrategy):
+    """布林带策略：中轨趋势跟踪 + 上下轨支撑压力"""
+    
+    def __init__(self):
+        super().__init__("布林带策略", "利用布林带上下轨捕捉支撑与压力，用中轨判断趋势")
+        
+    def analyze(self, df: pd.DataFrame, stock_code: str) -> Optional[TradeSignal]:
+        if len(df) < 20: return None
+        
+        length = 20
+        std = 2
+        
+        if HAS_PANDAS_TA:
+            # columns: BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
+            bb = df.ta.bbands(close='close', length=length, std=std)
+        else:
+            bb = calculate_bollinger(df['close'], length=length, std_dev=std)
+            
+        if bb is None: return None
+        
+        # 兼容不同列名
+        upper = bb[f'BBU_{length}_{std}.0'] if HAS_PANDAS_TA else bb['BBU']
+        mid = bb[f'BBM_{length}_{std}.0'] if HAS_PANDAS_TA else bb['BBM']
+        lower = bb[f'BBL_{length}_{std}.0'] if HAS_PANDAS_TA else bb['BBL']
+        
+        curr_price = df['close'].iloc[-1]
+        prev_price = df['close'].iloc[-2]
+        curr_lower = lower.iloc[-1]
+        curr_upper = upper.iloc[-1]
+        curr_mid = mid.iloc[-1]
+        
+        reasons = []
+        score = 50
+        signal_type = "HOLD"
+        
+        # 1. 回踩下轨反弹 (Mean Reversion)
+        if prev_price <= curr_lower * 1.01 and curr_price > curr_lower:
+            signal_type = "BUY"
+            score = 75
+            reasons.append("触及布林下轨后反弹")
+        
+        # 2. 突破上轨 (Breakout, 强势) - 需配合成交量，这里仅判断价格
+        # 但通常突破上轨短期可能回调，所以作为强势信号，不直接建议买入，除非趋势刚启动
+        elif curr_price > curr_upper and curr_mid > mid.iloc[-5]: # 中轨向上
+            signal_type = "BUY"
+            score = 65
+            reasons.append("股价强势突破布林上轨，趋势向上")
+            
+        # 3. 回调中轨支撑
+        elif prev_price > curr_mid and curr_price <= curr_mid * 1.01 and curr_mid > mid.iloc[-5]:
+            signal_type = "BUY"
+            score = 70
+            reasons.append("回调布林中轨获得支撑")
+            
+        return TradeSignal(
+            code=stock_code,
+            signal_type=signal_type,
+            score=score,
+            price=curr_price,
+            date=str(df.index[-1]),
+            reasons=reasons,
+            stop_loss=curr_lower * 0.98,
+            target_price=curr_upper
+        )
+        
+    def get_all_signals(self, df: pd.DataFrame) -> pd.Series:
+        if len(df) < 20: return pd.Series(0, index=df.index)
+        
+        length = 20
+        std = 2
+        
+        if HAS_PANDAS_TA:
+            bb = df.ta.bbands(close='close', length=length, std=std)
+        else:
+            bb = calculate_bollinger(df['close'], length=length, std_dev=std)
+            
+        upper = bb[f'BBU_{length}_{std}.0'] if HAS_PANDAS_TA else bb['BBU']
+        lower = bb[f'BBL_{length}_{std}.0'] if HAS_PANDAS_TA else bb['BBL']
+        
+        signals = pd.Series(0, index=df.index)
+        prices = df['close']
+        
+        # 简单策略：跌破下轨买入，突破上轨卖出(回归)
+        # 这里使用"下穿下轨回升"作为买点
+        buy_signal = (prices.shift(1) <= lower.shift(1)) & (prices > lower)
+        # 上穿上轨作为卖点
+        sell_signal = (prices > upper)
+        
+        signals[buy_signal] = 1
+        signals[sell_signal] = -1
+        return signals
+
+class KDJStrategy(BaseStrategy):
+    """KDJ随机指标策略：超卖金叉买入，超买死叉卖出"""
+    
+    def __init__(self):
+        super().__init__("KDJ超短线策略", "利用KDJ指标捕捉超短线买卖点，灵敏度高")
+        
+    def analyze(self, df: pd.DataFrame, stock_code: str) -> Optional[TradeSignal]:
+        if len(df) < 10: return None
+        
+        if HAS_PANDAS_TA:
+            kdj = df.ta.kdj(high='high', low='low', close='close')
+        else:
+            kdj = calculate_kdj(df)
+            
+        if kdj is None: return None
+        
+        # columns: K_9_3, D_9_3, J_9_3
+        k = kdj['K_9_3']
+        d = kdj['D_9_3']
+        j = kdj['J_9_3']
+        
+        curr_k, curr_d, curr_j = k.iloc[-1], d.iloc[-1], j.iloc[-1]
+        prev_k, prev_d, prev_j = k.iloc[-2], d.iloc[-2], j.iloc[-2]
+        curr_price = df['close'].iloc[-1]
+        
+        reasons = []
+        score = 50
+        signal_type = "HOLD"
+        
+        # 低位金叉 (K, D < 30)
+        if prev_k < prev_d and curr_k > curr_d:
+            if curr_k < 30:
+                signal_type = "BUY"
+                score = 85
+                reasons.append(f"KDJ低位金叉(K={curr_k:.1f})，强力买入信号")
+            elif curr_k < 50:
+                signal_type = "BUY"
+                score = 70
+                reasons.append("KDJ中低位金叉")
+        
+        # J线触底反弹
+        elif prev_j < 0 and curr_j > 0:
+            signal_type = "BUY"
+            score = 75
+            reasons.append(f"J值({curr_j:.1f})触底反弹，超跌修复")
+            
+        return TradeSignal(
+            code=stock_code,
+            signal_type=signal_type,
+            score=min(score, 100),
+            price=curr_price,
+            date=str(df.index[-1]),
+            reasons=reasons,
+            stop_loss=curr_price * 0.96,
+            target_price=curr_price * 1.05
+        )
+        
+    def get_all_signals(self, df: pd.DataFrame) -> pd.Series:
+        if len(df) < 10: return pd.Series(0, index=df.index)
+        
+        if HAS_PANDAS_TA:
+            kdj = df.ta.kdj(high='high', low='low', close='close')
+        else:
+            kdj = calculate_kdj(df)
+            
+        k, d = kdj['K_9_3'], kdj['D_9_3']
+        
+        signals = pd.Series(0, index=df.index)
+        
+        # 金叉
+        buy_signal = (k.shift(1) < d.shift(1)) & (k > d) & (k < 40) # 限制在低位金叉才买入
+        sell_signal = (k.shift(1) > d.shift(1)) & (k < d) & (k > 60) # 高位死叉卖出
+        
+        signals[buy_signal] = 1
+        signals[sell_signal] = -1
         return signals

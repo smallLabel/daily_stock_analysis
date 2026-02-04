@@ -120,6 +120,210 @@ class StockDaily(Base):
         }
 
 
+class SectorInfo(Base):
+    """
+    板块信息模型
+    
+    存储板块基本信息，每月更新一次
+    """
+    __tablename__ = 'sector_info'
+    
+    # 主键
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # 板块名称
+    name = Column(String(100), nullable=False, index=True)
+    
+    # 板块代码
+    code = Column(String(50), nullable=False, unique=True, index=True)
+    
+    # 板块涨跌幅
+    change_pct = Column(Float, default=0.0)
+    
+    # 板块成分股数量
+    stock_count = Column(Integer, default=0)
+    
+    # 板块潜力评分
+    potential_score = Column(Float, default=0.0)
+    
+    # 更新时间
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<SectorInfo(name={self.name}, code={self.code}, stock_count={self.stock_count})>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'code': self.code,
+            'name': self.name,
+            'change_pct': self.change_pct,
+            'stock_count': self.stock_count,
+            'potential_score': self.potential_score,
+            'updated_at': self.updated_at
+        }
+
+
+class SectorComponent(Base):
+    """
+    板块成分股模型
+    
+    存储板块与成分股的对应关系，每月更新一次
+    """
+    __tablename__ = 'sector_components'
+    
+    # 主键
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # 板块代码
+    sector_code = Column(String(50), nullable=False, index=True)
+    
+    # 股票代码
+    stock_code = Column(String(10), nullable=False, index=True)
+    
+    # 股票名称
+    stock_name = Column(String(50), nullable=False)
+    
+    # 权重（可选）
+    weight = Column(Float, default=0.0)
+    
+    # 更新时间
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # 唯一约束：一个板块中的一只股票只能有一条记录
+    __table_args__ = (
+        UniqueConstraint('sector_code', 'stock_code', name='uix_sector_stock'),
+        Index('ix_sector_stock', 'sector_code', 'stock_code'),
+    )
+    
+    def __repr__(self):
+        return f"<SectorComponent(sector={self.sector_code}, stock={self.stock_code})>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'sector_code': self.sector_code,
+            'stock_code': self.stock_code,
+            'stock_name': self.stock_name,
+            'weight': self.weight,
+            'updated_at': self.updated_at
+        }
+
+
+class WatchlistStock(Base):
+    """
+    自选股模型
+    
+    存储用户关注的股票列表，支持手动输入和持久化
+    """
+    __tablename__ = 'watchlist_stocks'
+    
+    # 主键
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # 股票代码（唯一）
+    stock_code = Column(String(10), nullable=False, unique=True, index=True)
+    
+    # 股票名称（可为空，获取数据后填充）
+    stock_name = Column(String(50), nullable=False, default='')
+    
+    # 显示顺序
+    display_order = Column(Integer, default=0)
+    
+    # 添加时间
+    created_at = Column(DateTime, default=datetime.now)
+    
+    # 更新时间
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<WatchlistStock(code={self.stock_code}, name={self.stock_name})>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'stock_code': self.stock_code,
+            'stock_name': self.stock_name or self.stock_code,
+            'display_order': self.display_order,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class AnalysisHistory(Base):
+    """
+    分析历史记录模型
+    
+    存储用户分析过的股票历史记录，包括分析结果摘要
+    """
+    __tablename__ = 'analysis_history'
+    
+    # 主键
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    # 股票代码
+    stock_code = Column(String(10), nullable=False, index=True)
+    
+    # 股票名称
+    stock_name = Column(String(50), nullable=False)
+    
+    # 当前价格
+    current_price = Column(Float, default=0.0)
+    
+    # 理想买入价
+    buy_point = Column(Float, default=0.0)
+    
+    # 止损位
+    stop_loss = Column(Float, default=0.0)
+    
+    # 目标价
+    target_price = Column(Float, default=0.0)
+    
+    # 信号类型 (买入/卖出/持有)
+    signal_type = Column(String(20), default='持有')
+    
+    # 情绪分数
+    sentiment_score = Column(Integer, default=0)
+    
+    # 信心等级
+    confidence_level = Column(String(10), default='中')
+    
+    # 报告类型 (simple/full)
+    report_type = Column(String(10), default='simple')
+    
+    # 核心结论
+    core_conclusion = Column(String(500), default='')
+    
+    # 分析时间
+    analyzed_at = Column(DateTime, default=datetime.now, index=True)
+    
+    # 更新时间
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    def __repr__(self):
+        return f"<AnalysisHistory(code={self.stock_code}, name={self.stock_name}, analyzed_at={self.analyzed_at})>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'code': self.stock_code,
+            'name': self.stock_name,
+            'price': self.current_price,
+            'buy_point': self.buy_point,
+            'stop_loss': self.stop_loss,
+            'target_price': self.target_price,
+            'signal': self.signal_type,
+            'sentiment_score': self.sentiment_score,
+            'confidence_level': self.confidence_level,
+            'report_type': self.report_type,
+            'core_conclusion': self.core_conclusion,
+            'query_time': self.analyzed_at.isoformat() if self.analyzed_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -484,6 +688,519 @@ class DatabaseManager:
             return "短期走弱 🔽"
         else:
             return "震荡整理 ↔️"
+    
+    def save_sector_info(self, sector_data: Dict[str, Any]) -> bool:
+        """
+        保存板块信息
+        
+        Args:
+            sector_data: 板块数据字典，包含name, code, change_pct, stock_count, potential_score等字段
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            with self.get_session() as session:
+                # 检查是否已存在
+                existing = session.execute(
+                    select(SectorInfo).where(SectorInfo.code == sector_data.get('code'))
+                ).scalar_one_or_none()
+                
+                if existing:
+                    # 更新现有记录
+                    existing.name = sector_data.get('name', existing.name)
+                    existing.change_pct = sector_data.get('change_pct', existing.change_pct)
+                    existing.stock_count = sector_data.get('stock_count', existing.stock_count)
+                    existing.potential_score = sector_data.get('potential_score', existing.potential_score)
+                    existing.updated_at = datetime.now()
+                else:
+                    # 创建新记录
+                    sector = SectorInfo(
+                        name=sector_data.get('name', ''),
+                        code=sector_data.get('code', ''),
+                        change_pct=sector_data.get('change_pct', 0.0),
+                        stock_count=sector_data.get('stock_count', 0),
+                        potential_score=sector_data.get('potential_score', 0.0)
+                    )
+                    session.add(sector)
+                
+                session.commit()
+                logger.info(f"保存板块信息成功: {sector_data.get('name')}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"保存板块信息失败: {e}")
+            return False
+    
+    def save_sector_components(self, sector_code: str, components: List[Dict[str, Any]]) -> bool:
+        """
+        保存板块成分股
+        
+        Args:
+            sector_code: 板块代码
+            components: 成分股列表，每个元素包含code, name, weight等字段
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            with self.get_session() as session:
+                # 先删除该板块的所有成分股记录
+                session.execute(
+                    SectorComponent.__table__.delete().where(
+                        SectorComponent.sector_code == sector_code
+                    )
+                )
+                
+                # 添加新的成分股记录
+                for comp in components:
+                    component = SectorComponent(
+                        sector_code=sector_code,
+                        stock_code=comp.get('code', ''),
+                        stock_name=comp.get('name', ''),
+                        weight=comp.get('weight', 0.0)
+                    )
+                    session.add(component)
+                
+                session.commit()
+                logger.info(f"保存板块成分股成功: {sector_code}, 共 {len(components)} 只")
+                return True
+                
+        except Exception as e:
+            logger.error(f"保存板块成分股失败: {e}")
+            return False
+    
+    def get_sector_info(self, sector_code: str) -> Optional[SectorInfo]:
+        """
+        获取板块信息
+        
+        Args:
+            sector_code: 板块代码
+            
+        Returns:
+            板块信息对象，如果不存在则返回None
+        """
+        try:
+            with self.get_session() as session:
+                sector = session.execute(
+                    select(SectorInfo).where(SectorInfo.code == sector_code)
+                ).scalar_one_or_none()
+                return sector
+        except Exception as e:
+            logger.error(f"获取板块信息失败: {e}")
+            return None
+    
+    def get_all_sectors(self) -> List[SectorInfo]:
+        """
+        获取所有板块信息
+        
+        Returns:
+            板块信息列表
+        """
+        try:
+            with self.get_session() as session:
+                sectors = session.execute(
+                    select(SectorInfo).order_by(SectorInfo.potential_score.desc())
+                ).scalars().all()
+                return list(sectors)
+        except Exception as e:
+            logger.error(f"获取所有板块信息失败: {e}")
+            return []
+    
+    def get_sector_components(self, sector_code: str) -> List[SectorComponent]:
+        """
+        获取板块成分股
+        
+        Args:
+            sector_code: 板块代码
+            
+        Returns:
+            成分股列表
+        """
+        try:
+            with self.get_session() as session:
+                components = session.execute(
+                    select(SectorComponent).where(
+                        SectorComponent.sector_code == sector_code
+                    )
+                ).scalars().all()
+                return list(components)
+        except Exception as e:
+            logger.error(f"获取板块成分股失败: {e}")
+            return []
+    
+    def get_sector_stock_codes(self, sector_code: str) -> List[str]:
+        """
+        获取板块成分股代码列表
+        
+        Args:
+            sector_code: 板块代码
+            
+        Returns:
+            股票代码列表
+        """
+        components = self.get_sector_components(sector_code)
+        return [c.stock_code for c in components]
+    
+    def is_sector_data_needs_update(self, sector_code: str) -> bool:
+        """
+        检查板块数据是否需要更新（基于月度更新逻辑）
+        
+        Args:
+            sector_code: 板块代码
+            
+        Returns:
+            是否需要更新
+        """
+        sector = self.get_sector_info(sector_code)
+        if not sector:
+            return True
+        
+        # 检查更新时间是否超过一个月
+        update_diff = datetime.now() - sector.updated_at.replace(tzinfo=None)
+        if update_diff.days >= 30:
+            return True
+        
+        return False
+    
+    def get_sectors_needing_update(self) -> List[str]:
+        """
+        获取需要更新的板块代码列表
+        
+        Returns:
+            需要更新的板块代码列表
+        """
+        sectors = self.get_all_sectors()
+        need_update = []
+        
+        for sector in sectors:
+            if self.is_sector_data_needs_update(sector.code):
+                need_update.append(sector.code)
+        
+        return need_update
+    
+    def save_watchlist_stock(self, stock_code: str, stock_name: str = "") -> bool:
+        """
+        保存自选股
+        
+        Args:
+            stock_code: 股票代码
+            stock_name: 股票名称（可选）
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            with self.get_session() as session:
+                # 检查是否已存在
+                existing = session.execute(
+                    select(WatchlistStock).where(WatchlistStock.stock_code == stock_code)
+                ).scalar_one_or_none()
+                
+                if existing:
+                    # 更新名称
+                    existing.stock_name = stock_name or stock_code
+                    existing.updated_at = datetime.now()
+                else:
+                    # 获取当前最大排序
+                    max_order = session.execute(
+                        select(WatchlistStock.display_order)
+                        .order_by(WatchlistStock.display_order.desc())
+                        .limit(1)
+                    ).scalar_one_or_none() or 0
+                    
+                    # 创建新记录
+                    watchlist = WatchlistStock(
+                        stock_code=stock_code,
+                        stock_name=stock_name or stock_code,
+                        display_order=max_order + 1
+                    )
+                    session.add(watchlist)
+                
+                session.commit()
+                logger.info(f"保存自选股成功: {stock_code} {stock_name}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"保存自选股失败: {e}")
+            return False
+    
+    def save_watchlist_stocks(self, stock_codes: List[str]) -> bool:
+        """
+        批量保存自选股
+        
+        Args:
+            stock_codes: 股票代码列表
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            with self.get_session() as session:
+                # 获取当前最大排序
+                max_order = session.execute(
+                    select(WatchlistStock.display_order)
+                    .order_by(WatchlistStock.display_order.desc())
+                    .limit(1)
+                ).scalar_one_or_none() or 0
+                
+                for i, code in enumerate(stock_codes):
+                    code = code.strip()
+                    if not code:
+                        continue
+                    
+                    # 检查是否已存在
+                    existing = session.execute(
+                        select(WatchlistStock).where(WatchlistStock.stock_code == code)
+                    ).scalar_one_or_none()
+                    
+                    if not existing:
+                        watchlist = WatchlistStock(
+                            stock_code=code,
+                            stock_name=code,
+                            display_order=max_order + i + 1
+                        )
+                        session.add(watchlist)
+                
+                session.commit()
+                logger.info(f"批量保存自选股成功: {len(stock_codes)} 只")
+                return True
+                
+        except Exception as e:
+            logger.error(f"批量保存自选股失败: {e}")
+            return False
+    
+    def get_watchlist_stocks(self) -> List[WatchlistStock]:
+        """
+        获取所有自选股
+        
+        Returns:
+            自选股列表（按排序顺序）
+        """
+        try:
+            with self.get_session() as session:
+                stocks = session.execute(
+                    select(WatchlistStock)
+                    .order_by(WatchlistStock.display_order, WatchlistStock.stock_code)
+                ).scalars().all()
+                return list(stocks)
+        except Exception as e:
+            logger.error(f"获取自选股列表失败: {e}")
+            return []
+    
+    def get_watchlist_stock_codes(self) -> List[str]:
+        """
+        获取自选股代码列表
+        
+        Returns:
+            股票代码列表
+        """
+        stocks = self.get_watchlist_stocks()
+        return [s.stock_code for s in stocks]
+    
+    def get_watchlist_stock_names(self) -> Dict[str, str]:
+        """
+        获取自选股名称映射
+        
+        Returns:
+            {股票代码: 股票名称} 字典
+        """
+        stocks = self.get_watchlist_stocks()
+        return {s.stock_code: s.stock_name or s.stock_code for s in stocks}
+    
+    def delete_watchlist_stock(self, stock_code: str) -> bool:
+        """
+        删除自选股
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_session() as session:
+                session.execute(
+                    WatchlistStock.__table__.delete().where(
+                        WatchlistStock.stock_code == stock_code
+                    )
+                )
+                session.commit()
+                logger.info(f"删除自选股成功: {stock_code}")
+                return True
+        except Exception as e:
+            logger.error(f"删除自选股失败: {e}")
+            return False
+    
+    def clear_watchlist(self) -> bool:
+        """
+        清空自选股
+        
+        Returns:
+            是否清空成功
+        """
+        try:
+            with self.get_session() as session:
+                session.execute(WatchlistStock.__table__.delete())
+                session.commit()
+                logger.info("清空自选股成功")
+                return True
+        except Exception as e:
+            logger.error(f"清空自选股失败: {e}")
+            return False
+    
+    def update_watchlist_stock_name(self, stock_code: str, stock_name: str) -> bool:
+        """
+        更新自选股名称
+        
+        Args:
+            stock_code: 股票代码
+            stock_name: 新的股票名称
+            
+        Returns:
+            是否更新成功
+        """
+        try:
+            with self.get_session() as session:
+                existing = session.execute(
+                    select(WatchlistStock).where(WatchlistStock.stock_code == stock_code)
+                ).scalar_one_or_none()
+                
+                if existing:
+                    existing.stock_name = stock_name
+                    existing.updated_at = datetime.now()
+                    session.commit()
+                    logger.info(f"更新自选股名称成功: {stock_code} -> {stock_name}")
+                    return True
+                else:
+                    logger.warning(f"未找到自选股: {stock_code}")
+                    return False
+        except Exception as e:
+            logger.error(f"更新自选股名称失败: {e}")
+            return False
+    
+    # === 分析历史记录管理 ===
+    
+    def save_analysis_history(self, analysis_data: Dict[str, Any]) -> bool:
+        """
+        保存分析历史记录
+        
+        Args:
+            analysis_data: 分析结果数据，包含code, name, price等字段
+            
+        Returns:
+            是否保存成功
+        """
+        try:
+            with self.get_session() as session:
+                # 提取数据
+                dashboard = analysis_data.get('dashboard', {})
+                price_position = dashboard.get('data_perspective', {}).get('price_position', {})
+                core_conclusion = dashboard.get('core_conclusion', {})
+                
+                # 创建记录
+                history = AnalysisHistory(
+                    stock_code=analysis_data.get('code', ''),
+                    stock_name=analysis_data.get('name', ''),
+                    current_price=price_position.get('current_price', 0.0),
+                    buy_point=price_position.get('support_level', 0.0),
+                    stop_loss=price_position.get('resistance_level', 0.0) * 0.95,  # 简单估算
+                    target_price=price_position.get('resistance_level', 0.0),
+                    signal_type=core_conclusion.get('signal_type', '持有'),
+                    sentiment_score=analysis_data.get('sentiment_score', 0),
+                    confidence_level=analysis_data.get('confidence_level', '中'),
+                    report_type=analysis_data.get('report_type', 'simple'),
+                    core_conclusion=core_conclusion.get('one_sentence', '')
+                )
+                
+                session.add(history)
+                session.commit()
+                logger.info(f"保存分析历史成功: {analysis_data.get('code')}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"保存分析历史失败: {e}")
+            return False
+    
+    def get_analysis_history(
+        self, 
+        limit: int = 50,
+        offset: int = 0,
+        stock_code: Optional[str] = None
+    ) -> List[AnalysisHistory]:
+        """
+        获取分析历史记录
+        
+        Args:
+            limit: 返回记录数量限制
+            offset: 偏移量（用于分页）
+            stock_code: 可选的股票代码筛选
+            
+        Returns:
+            分析历史记录列表
+        """
+        try:
+            with self.get_session() as session:
+                query = select(AnalysisHistory).order_by(desc(AnalysisHistory.analyzed_at))
+                
+                if stock_code:
+                    query = query.where(AnalysisHistory.stock_code == stock_code)
+                
+                query = query.limit(limit).offset(offset)
+                
+                results = session.execute(query).scalars().all()
+                return list(results)
+        except Exception as e:
+            logger.error(f"获取分析历史失败: {e}")
+            return []
+    
+    def get_analysis_history_count(self, stock_code: Optional[str] = None) -> int:
+        """
+        获取分析历史记录总数
+        
+        Args:
+            stock_code: 可选的股票代码筛选
+            
+        Returns:
+            记录总数
+        """
+        try:
+            with self.get_session() as session:
+                from sqlalchemy import func
+                query = select(func.count(AnalysisHistory.id))
+                
+                if stock_code:
+                    query = query.where(AnalysisHistory.stock_code == stock_code)
+                
+                count = session.execute(query).scalar()
+                return count or 0
+        except Exception as e:
+            logger.error(f"获取分析历史记录总数失败: {e}")
+            return 0
+    
+    def delete_analysis_history(self, history_id: int) -> bool:
+        """
+        删除指定的分析历史记录
+        
+        Args:
+            history_id: 历史记录ID
+            
+        Returns:
+            是否删除成功
+        """
+        try:
+            with self.get_session() as session:
+                session.execute(
+                    AnalysisHistory.__table__.delete().where(
+                        AnalysisHistory.id == history_id
+                    )
+                )
+                session.commit()
+                logger.info(f"删除分析历史成功: {history_id}")
+                return True
+        except Exception as e:
+            logger.error(f"删除分析历史失败: {e}")
+            return False
 
 
 # 便捷函数

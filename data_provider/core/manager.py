@@ -545,6 +545,21 @@ class DataFetcherManager:
                 logger.warning(f"[{fetcher.name}] 获取板块排行失败: {e}")
                 continue
         return [], []
+
+    def get_all_stocks_snapshot(self) -> Optional[pd.DataFrame]:
+        """获取全市场快照（自动切换数据源）"""
+        for fetcher in self._fetchers:
+            try:
+                # 检查 fetcher 是否实现了 get_all_stocks_snapshot
+                if hasattr(fetcher, 'get_all_stocks_snapshot'):
+                    df = fetcher.get_all_stocks_snapshot()
+                    if df is not None and not df.empty:
+                        logger.info(f"[{fetcher.name}] 获取全市场快照成功，共 {len(df)} 条")
+                        return df
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取全市场快照失败: {e}")
+                continue
+        return None
     
     def get_sector_stocks(self, sector_name: str) -> List[str]:
         """

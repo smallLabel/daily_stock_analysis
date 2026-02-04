@@ -645,13 +645,26 @@ def render_config_page(
     const MAX_TASKS_DISPLAY = 10;
     
     // 允许输入数字和字母和点（支持港股 HKxxxxx 格式 美股AAPL/BRK.B）
+    let inputTimeout = null;
     codeInput.addEventListener('input', function(e) {
-        // 转大写，只保留字母和数字和点
-        this.value = this.value.toUpperCase().replace(/[^A-Z0-9.]/g, '');
-        if (this.value.length > 8) {
-            this.value = this.value.slice(0, 8);
-        }
+        // 立即更新按钮状态
         updateButtonState();
+        
+        // 延迟过滤，避免干扰输入法
+        if (inputTimeout) clearTimeout(inputTimeout);
+        inputTimeout = setTimeout(() => {
+            const cursorPos = this.selectionStart;
+            const oldValue = this.value;
+            const newValue = this.value.toUpperCase().replace(/[^A-Z0-9.]/g, '').slice(0, 10);
+            
+            if (oldValue !== newValue) {
+                this.value = newValue;
+                // 尝试保持光标位置
+                const newCursorPos = Math.min(cursorPos, newValue.length);
+                this.setSelectionRange(newCursorPos, newCursorPos);
+                updateButtonState();
+            }
+        }, 300);
     });
     
     // 回车提交
@@ -666,7 +679,7 @@ def render_config_page(
     
     // 更新按钮状态 - 支持 A股(6位数字) 或 港股(HK+5位数字)
     function updateButtonState() {
-        const code = codeInput.value.trim();
+        const code = codeInput.value.trim().toUpperCase();
         const isAStock = /^\\d{6}$/.test(code);           // A股: 600519
         const isHKStock = /^HK\\d{5}$/.test(code);        // 港股: HK00700
         const isUSStock =  /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/.test(code); // 美股: AAPL
@@ -850,12 +863,13 @@ def render_config_page(
     
     // 提交分析
     window.submitAnalysis = function() {
-        const code = codeInput.value.trim();
+        const code = codeInput.value.trim().toUpperCase();
         const isAStock = /^\d{6}$/.test(code);
         const isHKStock = /^HK\d{5}$/.test(code);
         const isUSStock = /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/.test(code);
 
         if (!(isAStock || isHKStock || isUSStock)) {
+            showToast('请输入有效的股票代码', 'error');
             return;
         }
         
@@ -863,39 +877,67 @@ def render_config_page(
         submitBtn.textContent = '提交中...';
 
         const reportType = reportTypeSelect.value;
-        fetch('/analysis?code=' + encodeURIComponent(code) + '&report_type=' + encodeURIComponent(reportType))
-            .then(response => response.json())
+        
+        // 检查股票是否在自选股中，不在则自动添加
+        fetch('/api/watchlist')
+            .then(r => r.json())
             .then(data => {
-                if (data.success) {
-                    const taskId = data.task_id;
-                    tasks.set(taskId, {
-                        task: {
-                            code: code,
-                            status: 'running',
-                            start_time: new Date().toISOString(),
-                            report_type: reportType
-                        },
-                        pollCount: 0
-                    });
-                    
-                    renderAllTasks();
-                    startPolling();
-                    codeInput.value = '';
-                    
-                    // 立即轮询一次
-                    setTimeout(() => {
-                        fetch('/task?id=' + encodeURIComponent(taskId))
-                            .then(r => r.json())
-                            .then(d => {
-                                if (d.success && d.task) {
-                                    tasks.get(taskId).task = d.task;
-                                    renderAllTasks();
-                                }
-                            });
-                    }, 500);
-                } else {
-                    alert('提交失败: ' + (data.error || '未知错误'));
+                const existingCodes = data.data ? data.data.map(s => s.stock_code) : [];
+                
+                // 如果是A股，检查是否已存在
+                if (isAStock && !existingCodes.includes(code)) {
+                    // 自动添加到自选股
+                    const formData = new URLSearchParams();
+                    formData.append('stock_code', code);
+                    return fetch('/api/watchlist/add', {method: 'POST', body: formData})
+                        .then(r => r.json())
+                        .then(addData => {
+                            if (addData.success) {
+                                console.log('自动添加股票到自选股:', code);
+                                loadWatchlist(); // 刷新下拉列表
+                            }
+                            return { shouldContinue: true, code: code, reportType: reportType };
+                        });
                 }
+                return { shouldContinue: true, code: code, reportType: reportType };
+            })
+            .then(result => {
+                if (!result || !result.shouldContinue) return;
+                
+                return fetch('/analysis?code=' + encodeURIComponent(result.code) + '&report_type=' + encodeURIComponent(result.reportType))
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const taskId = data.task_id;
+                            tasks.set(taskId, {
+                                task: {
+                                    code: result.code,
+                                    status: 'running',
+                                    start_time: new Date().toISOString(),
+                                    report_type: result.reportType
+                                },
+                                pollCount: 0
+                            });
+                            
+                            renderAllTasks();
+                            startPolling();
+                            codeInput.value = '';
+                            
+                            // 立即轮询一次
+                            setTimeout(() => {
+                                fetch('/task?id=' + encodeURIComponent(taskId))
+                                    .then(r => r.json())
+                                    .then(d => {
+                                        if (d.success && d.task) {
+                                            tasks.get(taskId).task = d.task;
+                                            renderAllTasks();
+                                        }
+                                    });
+                            }, 500);
+                        } else {
+                            alert('提交失败: ' + (data.error || '未知错误'));
+                        }
+                    });
             })
             .catch(error => {
                 alert('请求失败: ' + error.message);
@@ -906,6 +948,137 @@ def render_config_page(
                 updateButtonState();
             });
     };
+    
+    // ==================== 自选股管理功能 ====================
+    
+    // 加载自选股列表到 datalist
+    function loadWatchlist() {
+        const datalist = document.getElementById('watchlist_datalist');
+        if (!datalist) return;
+        
+        fetch('/api/watchlist')
+            .then(r => r.json())
+            .then(data => {
+                // 清空datalist但保留提示选项
+                datalist.innerHTML = '<option value="">📋 从自选股选择...</option>';
+                
+                if (data.success && data.data && data.data.length > 0) {
+                    // 添加自选股选项
+                    data.data.forEach(stock => {
+                        const option = document.createElement('option');
+                        option.value = stock.stock_code;
+                        // 显示代码和名称，如果没有名称则只显示代码
+                        const displayName = stock.stock_name && stock.stock_name !== stock.stock_code 
+                            ? `${stock.stock_code} - ${stock.stock_name}`
+                            : stock.stock_code;
+                        option.textContent = displayName;
+                        datalist.appendChild(option);
+                    });
+                } else {
+                    // 没有自选股时，添加手动输入提示选项
+                    const hintOption = document.createElement('option');
+                    hintOption.value = '';
+                    hintOption.textContent = '💡 请手动输入股票代码';
+                    hintOption.disabled = true;
+                    datalist.appendChild(hintOption);
+                }
+            })
+            .catch(e => {
+                console.error('加载自选股失败:', e);
+                // 出错时显示手动输入提示
+                datalist.innerHTML = '<option value="">📋 请手动输入股票代码</option>';
+            });
+    }
+    
+    // 添加股票到自选股
+    window.addToWatchlist = function(code, name) {
+        if (!code) {
+            showToast('请输入股票代码', 'error');
+            return;
+        }
+        
+        // 验证股票代码格式
+        const cleanCode = code.trim();
+        if (!/^\d{6}$/.test(cleanCode)) {
+            showToast('股票代码需要是6位数字', 'error');
+            return;
+        }
+        
+        const formData = new URLSearchParams();
+        formData.append('stock_code', cleanCode);
+        if (name) formData.append('stock_name', name);
+        
+        fetch('/api/watchlist/add', {method: 'POST', body: formData})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadWatchlist(); // 刷新列表
+                } else {
+                    if (data.duplicate) {
+                        showToast(`${cleanCode} 已在自选股中`, 'warning');
+                    } else {
+                        showToast(data.error || '添加失败', 'error');
+                    }
+                }
+            })
+            .catch(e => showToast('添加失败: ' + e.message, 'error'));
+    };
+    
+    // 从自选股移除
+    window.removeFromWatchlist = function(code) {
+        if (!code) return;
+        
+        if (!confirm('确定要从自选股移除 ' + code + ' 吗？')) return;
+        
+        fetch('/api/watchlist/remove?code=' + encodeURIComponent(code))
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('已从自选股移除', 'success');
+                    loadWatchlist(); // 刷新列表
+                } else {
+                    showToast(data.error || '移除失败', 'error');
+                }
+            })
+            .catch(e => showToast('移除失败: ' + e.message, 'error'));
+    };
+    
+    // 导入股票到自选股
+    window.importToWatchlist = function(codes) {
+        if (!codes || codes.trim() === '') {
+            showToast('请输入股票代码', 'error');
+            return;
+        }
+        
+        // 解析并过滤有效代码
+        const stockCodes = codes.split(new RegExp('[\\n,]+'))
+            .map(c => c.trim())
+            .filter(c => c && (/^\d{6}$/.test(c) || /^HK\d{5}$/.test(c) || /^[A-Z]{1,5}(\.[A-Z]{1,2})?$/i.test(c)));
+        
+        if (stockCodes.length === 0) {
+            showToast('没有有效的股票代码（6位数字）', 'error');
+            return;
+        }
+        
+        const formData = new URLSearchParams();
+        formData.append('stock_codes', stockCodes.join(','));
+        
+        fetch('/api/watchlist/import', {method: 'POST', body: formData})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    loadWatchlist(); // 刷新列表
+                } else {
+                    showToast(data.error || '导入失败', 'error');
+                }
+            })
+            .catch(e => showToast('导入失败: ' + e.message, 'error'));
+    };
+    
+    // 页面加载时加载自选股
+    loadWatchlist();
     
     // 初始化
     updateButtonState();
@@ -926,7 +1099,7 @@ def render_config_page(
           🏠 首页
         </a>
         <a href="/web/static/sector_picker.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
-          📊 板块选股
+          ⭐ 自选股选股
         </a>
         <a href="/web/static/portfolio.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
           💼 持仓管理
@@ -941,11 +1114,16 @@ def render_config_page(
           <input 
               type="text" 
               id="analysis_code" 
-              placeholder="A股 600519 / 港股 HK00700 / 美股 AAPL"
-              maxlength="8"
+              list="watchlist_datalist"
+              placeholder="输入股票代码或从下拉选择"
+              maxlength="10"
               autocomplete="off"
+              style="flex: 1; min-width: 200px; text-transform: uppercase;"
           />
-          <select id="report_type" class="report-select" title="选择报告类型">
+          <datalist id="watchlist_datalist">
+            <option value="">📋 从自选股选择...</option>
+          </datalist>
+          <select id="report_type" class="report-select" title="选择报告类型" style="min-width: 130px;">
             <option value="simple">📝 精简报告</option>
             <option value="full">📊 完整报告</option>
           </select>
@@ -960,7 +1138,7 @@ def render_config_page(
     </div>
     
     <hr class="section-divider">
-    
+
     <!-- 自选股配置区域 -->
     <form method="post" action="/update">
       <div class="form-group">

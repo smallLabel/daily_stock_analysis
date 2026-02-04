@@ -1459,6 +1459,75 @@ class AkshareFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"[Akshare] 获取板块排行失败: {e}")
             return None
+
+    def search_board(self, keyword: str) -> List[Dict[str, Any]]:
+        """
+        搜索板块（模糊匹配）
+        """
+        import akshare as ak
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+
+            # 获取行业板块和概念板块
+            dfs = []
+            
+            max_retries = 3
+            
+            # 1. 行业板块
+            for attempt in range(max_retries):
+                try:
+                    df_industry = ak.stock_board_industry_name_em()
+                    if df_industry is not None and not df_industry.empty:
+                        df_industry['type'] = '行业'
+                        dfs.append(df_industry)
+                    break # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 + attempt)
+                        continue
+                    logger.warning(f"[Akshare] 获取行业板块失败 (重试{max_retries}次后): {e}")
+
+            # 2. 概念板块 (新增)
+            for attempt in range(max_retries):
+                try:
+                    df_concept = ak.stock_board_concept_name_em()
+                    if df_concept is not None and not df_concept.empty:
+                        df_concept['type'] = '概念'
+                        dfs.append(df_concept)
+                    break # Success
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(2 + attempt)
+                        continue
+                    logger.warning(f"[Akshare] 获取概念板块失败 (重试{max_retries}次后): {e}")
+
+            if not dfs:
+                return []
+
+            df = pd.concat(dfs, ignore_index=True)
+            
+            matches = []
+            if df is not None and not df.empty:
+                # 模糊匹配
+                mask = df['板块名称'].str.contains(keyword, case=False, na=False)
+                filtered = df[mask]
+                
+                for _, row in filtered.iterrows():
+                    matches.append({
+                        'name': row['板块名称'],
+                        'type': row.get('type', '未知'),
+                        'code': row.get('板块代码', ''),
+                        'change_pct': safe_float(row.get('涨跌幅', 0)),
+                        'money_flow': safe_float(row.get('资金流入', 0)),
+                        'stock_count': safe_int(row.get('公司数量', 0))
+                    })
+            return matches
+
+        except Exception as e:
+            logger.error(f"[Akshare] 搜索板块失败: {e}")
+            return []
+
     
     def get_sector_stocks(self, sector_name: str) -> Optional[List[str]]:
         """
@@ -1492,6 +1561,66 @@ class AkshareFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"[Akshare] 获取板块 {sector_name} 成分股失败: {e}")
             return []
+
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception_type((Exception)), # Retry on any exception for now
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    def get_all_stocks_snapshot(self) -> Optional[pd.DataFrame]:
+        """
+        获取全市场所有股票的实时快照 (东财接口)
+        """
+        import akshare as ak
+        
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+
+            # 获取全部A股实时行情
+            logger.info("正在拉取全市场实时快照 (ak.stock_zh_a_spot_em)...")
+            # Increase timeout if possible, but akshare doesn't expose it easily in high level functions
+            # We rely on tenacity to retry
+            df = ak.stock_zh_a_spot_em()
+
+            if df is not None and not df.empty:
+                # 转换列名
+                # akshare 返回: 序号, 代码, 名称, 最新价, 涨跌幅, 涨跌额, 成交量, 成交额, 振幅, 最高, 最低, 今开, 昨收, 量比, 换手率, 市盈率-动态, ... 60日涨跌幅, 年初至今涨跌幅
+                
+                # 标准化
+                result = pd.DataFrame()
+                result['code'] = df['代码'].astype(str)
+                result['name'] = df['名称'].astype(str)
+                result['price'] = pd.to_numeric(df['最新价'], errors='coerce')
+                result['change_pct'] = pd.to_numeric(df['涨跌幅'], errors='coerce')
+                result['total_mv'] = pd.to_numeric(df['总市值'], errors='coerce') # 东财可能返回的是数值（元）
+                result['circ_mv'] = pd.to_numeric(df['流通市值'], errors='coerce')
+                
+                # RPS 核心数据
+                if '60日涨跌幅' in df.columns:
+                    result['change_60d'] = pd.to_numeric(df['60日涨跌幅'], errors='coerce')
+                else:
+                    result['change_60d'] = 0.0
+                    
+                if '年初至今涨跌幅' in df.columns:
+                    result['change_ytd'] = pd.to_numeric(df['年初至今涨跌幅'], errors='coerce')
+                else:
+                    result['change_ytd'] = 0.0
+
+                # 过滤掉非股票代码（如指数等，其实 stock_zh_a_spot_em 主要是A股）
+                # 确保代码是6位数字
+                result = result[result['code'].str.match(r'^\d{6}$')]
+                
+                logger.info(f"全市场快照处理完成，共 {len(result)} 只股票")
+                return result
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[Akshare] 获取全市场快照失败: {e}")
+            raise e # Raise to trigger retry
 
 
 if __name__ == "__main__":

@@ -1292,6 +1292,56 @@ class GeminiAnalyzer:
             success=True,
         )
     
+    def analyze_hot_themes(self, search_results: str) -> List[Dict[str, Any]]:
+        """
+        分析市场热门题材
+        
+        Args:
+            search_results: 搜索结果文本
+            
+        Returns:
+            List[Dict]: 题材列表，每个题材包含名称、描述、相关股票
+        """
+        prompt = f"""
+        基于以下搜索结果，分析当前中国股市（A股）最热门的题材概念。
+        
+        【搜索结果】
+        {search_results}
+        
+        请提取 3-5 个最热门的题材，并按以下 JSON 格式输出：
+        [
+            {{
+                "name": "题材名称（如：低空经济）",
+                "description": "题材简述（为什么火，核心逻辑）",
+                "related_stocks": ["股票代码1 股票名称1", "股票代码2 股票名称2"]
+            }}
+        ]
+        
+        要求：
+        1. 只提取当前市场确实热门的题材。
+        2. 相关股票尽量提供龙头股。
+        3. 输出必须是纯 JSON 数组，无需其他文字。
+        """
+        
+        try:
+            generation_config = {
+                "temperature": 0.2,
+                "max_output_tokens": 2048,
+                "response_mime_type": "application/json"
+            }
+            
+            response_text = self._call_api_with_retry(prompt, generation_config)
+            
+            # 清理可能的 markdown 标记
+            response_text = response_text.replace('```json', '').replace('```', '').strip()
+            
+            themes = json.loads(response_text)
+            return themes
+            
+        except Exception as e:
+            logger.error(f"分析热门题材失败: {e}")
+            return []
+
     def batch_analyze(
         self, 
         contexts: List[Dict[str, Any]],

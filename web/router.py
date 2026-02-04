@@ -353,6 +353,49 @@ def create_default_router() -> Router:
         "设置止盈止损"
     )
     
+    # === 自选股管理 API 路由 ===
+    router.register(
+        "/api/watchlist", "GET",
+        lambda q: api_handler.handle_get_watchlist(),
+        "获取自选股列表"
+    )
+    
+    router.register(
+        "/api/watchlist/add", "POST",
+        lambda form: api_handler.handle_add_watchlist_stock(form),
+        "添加自选股"
+    )
+    
+    router.register(
+        "/api/watchlist/remove", "GET",
+        lambda q: api_handler.handle_remove_watchlist_stock(q),
+        "删除自选股"
+    )
+    
+    router.register(
+        "/api/watchlist/clear", "GET",
+        lambda q: api_handler.handle_clear_watchlist(),
+        "清空自选股"
+    )
+    
+    router.register(
+        "/api/watchlist/import", "POST",
+        lambda form: api_handler.handle_import_watchlist(form),
+        "批量导入自选股"
+    )
+    
+    router.register(
+        "/api/watchlist/sync-names", "POST",
+        lambda form: api_handler.handle_sync_watchlist_names(form),
+        "同步自选股名称"
+    )
+    
+    router.register(
+        "/api/config", "GET",
+        lambda q: api_handler.handle_get_config(),
+        "获取当前配置"
+    )
+    
     # === 板块选股 API 路由 ===
     router.register(
         "/api/sector-analysis", "GET",
@@ -364,6 +407,25 @@ def create_default_router() -> Router:
         "/api/history/performance", "GET",
         lambda q: api_handler.handle_history_performance(),
         "历史战绩回顾"
+    )
+
+    # === 交互式分析 API ===
+    router.register(
+        "/api/sector/search", "GET",
+        lambda q: api_handler.handle_search_sector(q),
+        "搜索板块"
+    )
+    
+    router.register(
+        "/api/sector/stocks", "GET",
+        lambda q: api_handler.handle_get_sector_stocks(q),
+        "获取板块成分股"
+    )
+    
+    router.register(
+        "/api/backtest/run", "POST",
+        lambda form: api_handler.handle_run_backtest(form),
+        "运行回测与评分"
     )
     
     # === Bot Webhook 路由 ===
