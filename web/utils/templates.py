@@ -1092,17 +1092,11 @@ def render_config_page(
     <h2>📈 A股/港股/美股分析</h2>
     
     <!-- 导航菜单 -->
-    <div style="margin: 1.5rem 0; padding: 1rem; background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); border-radius: 0.75rem;">
+    <div style="margin: 1.5rem 0; padding: 1rem; background: linear-gradient(135deg, #f5f7fa  0%, #c3cfe2 100%); border-radius: 0.75rem;">
       <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
         <span style="font-weight: 600; color: #2563eb;">🧭 快速导航：</span>
         <a href="/" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
           🏠 首页
-        </a>
-        <a href="/web/static/sector_picker.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
-          ⭐ 自选股选股
-        </a>
-        <a href="/web/static/portfolio.html" style="padding: 0.5rem 1rem; background: white; border-radius: 0.5rem; text-decoration: none; color: #2563eb; font-weight: 500; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.2s;">
-          💼 持仓管理
         </a>
       </div>
     </div>

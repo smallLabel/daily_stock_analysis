@@ -6,6 +6,7 @@
 
 from typing import List, Dict, Any
 from src.storage import get_db
+import json
 
 
 def load_history_page(page_num: int = 1, page_size: int = 10) -> tuple:
@@ -56,7 +57,11 @@ def load_history_page(page_num: int = 1, page_size: int = 10) -> tuple:
             'price': f"{h.current_price:.2f}" if h.current_price else '0.00',
             'buy_point': f"{h.buy_point:.2f}" if h.buy_point else '0.00',
             'stop_loss': f"{h.stop_loss:.2f}" if h.stop_loss else '0.00',
+            'target_price': f"{h.target_price:.2f}" if h.target_price else '0.00',
             'signal': signal,
+            'sentiment_score': h.sentiment_score or 0,
+            'core_conclusion': h.core_conclusion,
+            'result_json': json.loads(h.result_json) if h.result_json else {},
             'change': '',  # 暂不显示涨跌幅
             'query_time': query_time
         })

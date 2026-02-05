@@ -28,17 +28,20 @@ def setup_theme():
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
         <style>
-            body { font-family: 'Inter', 'Noto Sans SC', sans-serif; background-color: #09090B; color: #FAFAFA; margin: 0; padding: 0; overflow: hidden; }
+            body { font-family: 'Inter', 'Noto Sans SC', sans-serif; background-color: #09090B; color: #FAFAFA; margin: 0; padding: 0; }
             .font-mono { font-family: 'JetBrains Mono', monospace; }
-            /* Hide scrollbar for Chrome, Safari and Opera */
-            ::-webkit-scrollbar {
-                display: none;
-            }
-            /* Hide scrollbar for IE, Edge and Firefox */
-            body {
-                -ms-overflow-style: none;  /* IE and Edge */
-                scrollbar-width: none;  /* Firefox */
-            }
+            /* 仅在特定容器隐藏滚动条 */
+            .hide-scrollbar::-webkit-scrollbar { display: none; }
+            .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+            /* 表格容器滚动条样式 */
+            .table-container::-webkit-scrollbar { width: 6px; height: 6px; }
+            .table-container::-webkit-scrollbar-track { background: #18181B; }
+            .table-container::-webkit-scrollbar-thumb { background: #3F3F46; border-radius: 3px; }
+            .table-container::-webkit-scrollbar-thumb:hover { background: #52525B; }
+            /* 禁用状态样式 */
+            .q-select.disabled .q-field__control { opacity: 0.5; pointer-events: none; }
+            /* 隐藏类 */
+            .hidden { display: none !important; }
         </style>
     ''')
     

@@ -12,6 +12,7 @@ A股自选股智能分析系统 - 存储层
 """
 
 import atexit
+import json
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
@@ -25,12 +26,14 @@ from sqlalchemy import (
     Float,
     Date,
     DateTime,
+    Text, # Added
     Integer,
     Index,
     UniqueConstraint,
     select,
     and_,
     desc,
+    text, # Added for raw sql
 )
 from sqlalchemy.orm import (
     declarative_base,
@@ -295,6 +298,9 @@ class AnalysisHistory(Base):
     # 核心结论
     core_conclusion = Column(String(500), default='')
     
+    # 完整分析结果 JSON
+    result_json = Column(Text, default="{}")
+    
     # 分析时间
     analyzed_at = Column(DateTime, default=datetime.now, index=True)
     
@@ -319,6 +325,7 @@ class AnalysisHistory(Base):
             'confidence_level': self.confidence_level,
             'report_type': self.report_type,
             'core_conclusion': self.core_conclusion,
+            'result_json': json.loads(self.result_json) if self.result_json else {},
             'query_time': self.analyzed_at.isoformat() if self.analyzed_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -373,6 +380,16 @@ class DatabaseManager:
         
         # 创建所有表
         Base.metadata.create_all(self._engine)
+        
+        # 尝试添加 result_json 列 (Schema Migration)
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text("ALTER TABLE analysis_history ADD COLUMN result_json TEXT DEFAULT '{}'"))
+                conn.commit()
+                logger.info("已添加 result_json 列到 analysis_history 表")
+        except Exception:
+            # 列已存在或其他错误，忽略
+            pass
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
@@ -1109,8 +1126,10 @@ class DatabaseManager:
                     signal_type=core_conclusion.get('signal_type', '持有'),
                     sentiment_score=analysis_data.get('sentiment_score', 0),
                     confidence_level=analysis_data.get('confidence_level', '中'),
+
                     report_type=analysis_data.get('report_type', 'simple'),
-                    core_conclusion=core_conclusion.get('one_sentence', '')
+                    core_conclusion=core_conclusion.get('one_sentence', ''),
+                    result_json=json.dumps(analysis_data, ensure_ascii=False)
                 )
                 
                 session.add(history)

@@ -388,12 +388,12 @@ def main() -> int:
     # === 启动 WebUI (如果启用) ===
     # 优先级: 命令行参数 > 配置文件
     # WebUI 模式：仅启动服务，不自动执行分析
-    start_webui = (args.webui or config.webui_enabled) and os.getenv("GITHUB_ACTIONS") != "true"
+    start_webui = (args.webui or args.webui_only or config.webui_enabled) and os.getenv("GITHUB_ACTIONS") != "true"
     
     if start_webui:
         try:
             from nicegui import ui
-            import web.main_ui  # 导入模块会执行全局UI构建代码
+            import web.app  # 导入模块会执行全局UI构建代码
             
             # 启动 Bot Stream 客户端
             start_bot_stream_clients(config)
@@ -411,10 +411,13 @@ def main() -> int:
                 dark=True,
                 host=config.webui_host,
                 port=config.webui_port,
-                show=False  # 不自动打开浏览器
+                show=False,  # 不自动打开浏览器
+                reload=False, # 禁用自动重载，避免多进程问题
+                uvicorn_logging_level='info'
             )
             
-            return 0
+            # remove return 0 to allow fall-through if ui.run returns (it shouldn't, but safety)
+            # return 0
             
         except Exception as e:
             logger.error(f"启动 WebUI 失败: {e}")
@@ -543,5 +546,5 @@ def main() -> int:
         return 1
 
 
-if __name__ == "__main__":
+if __name__ in {"__main__", "__mp_main__"}:
     sys.exit(main())

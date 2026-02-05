@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 _ENV_PATH = os.getenv("ENV_FILE", ".env")
 
-_STOCK_LIST_RE = re.compile(
-    r"^(?P<prefix>\s*STOCK_LIST\s*=\s*)(?P<value>.*?)(?P<suffix>\s*)$"
+_ENV_KEY_RE = re.compile(
+    r"^(?P<prefix>\s*(?P<key>[A-Z_][A-Z0-9_]*)\s*=\s*)(?P<value>.*?)(?P<suffix>\s*)$"
 )
 
 
@@ -60,34 +60,58 @@ class ConfigService:
     
     def get_stock_list(self) -> str:
         """获取当前自选股列表字符串"""
-        env_text = self.read_env_text()
-        return self._extract_stock_list(env_text)
+        return self.get_config('STOCK_LIST')
     
     def set_stock_list(self, stock_list: str) -> str:
+        """设置自选股列表"""
+        normalized = self._normalize_stock_list(stock_list)
+        self.update_config('STOCK_LIST', normalized)
+        return normalized
+
+    def get_config(self, key: str) -> str:
         """
-        设置自选股列表
+        获取指定配置项的值
         
         Args:
-            stock_list: 股票代码字符串（逗号或换行分隔）
-            
-        Returns:
-            规范化后的股票列表字符串
+            key: 配置键名 (例如: OPENAI_API_KEY)
         """
         env_text = self.read_env_text()
-        normalized = self._normalize_stock_list(stock_list)
-        updated = self._update_stock_list(env_text, normalized)
+        return self._extract_value(env_text, key)
+
+    def update_config(self, key: str, value: str) -> bool:
+        """
+        更新单个配置项
+        
+        Args:
+            key: 配置键名
+            value: 新值
+        """
+        env_text = self.read_env_text()
+        updated = self._update_env_content(env_text, {key: value})
         self.write_env_text(updated)
-        return normalized
+        return True
+
+    def update_multiple_configs(self, updates: Dict[str, str]) -> bool:
+        """
+        批量更新配置项
+        
+        Args:
+            updates: 键值对字典 {key: value}
+        """
+        env_text = self.read_env_text()
+        updated = self._update_env_content(env_text, updates)
+        self.write_env_text(updated)
+        return True
     
     def get_env_filename(self) -> str:
         """获取 .env 文件名"""
         return os.path.basename(self.env_path)
     
-    def _extract_stock_list(self, env_text: str) -> str:
-        """从环境文件中提取 STOCK_LIST 值"""
+    def _extract_value(self, env_text: str, target_key: str) -> str:
+        """从环境文件中提取指定 Key 的值"""
         for line in env_text.splitlines():
-            m = _STOCK_LIST_RE.match(line)
-            if m:
+            m = _ENV_KEY_RE.match(line)
+            if m and m.group("key") == target_key:
                 raw = m.group("value").strip()
                 # 去除引号
                 if (raw.startswith('"') and raw.endswith('"')) or \
@@ -102,25 +126,49 @@ class ConfigService:
         parts = [p for p in parts if p]
         return ",".join(parts)
     
-    def _update_stock_list(self, env_text: str, new_value: str) -> str:
-        """更新环境文件中的 STOCK_LIST"""
+    def _update_env_content(self, env_text: str, updates: Dict[str, str]) -> str:
+        """
+        更新环境文件内容
+        
+        策略：
+        1. 遍历每一行，如果匹配到 updates 中的 key，则替换值
+        2. 如果 updates 中有 key 在文件中未找到，则追加到文件末尾
+        """
         lines = env_text.splitlines(keepends=False)
         out_lines: List[str] = []
-        replaced = False
+        
+        # 记录已处理的 key
+        processed_keys = set()
         
         for line in lines:
-            m = _STOCK_LIST_RE.match(line)
-            if not m:
-                out_lines.append(line)
-                continue
+            m = _ENV_KEY_RE.match(line)
+            if m:
+                key = m.group("key")
+                if key in updates:
+                    new_value = updates[key]
+                    # 尝试保留原有引用格式（如果有），这里简单处理，直接替换值部分
+                    # 如果原值有引号，最好也根据新值决定是否加引号。
+                    # 为简单起见，如果新值包含空格或特殊字符，建议加引号。
+                    # 或者，仅替换 value 部分，保留 prefix 和 suffix
+                    
+                    # 简单的引号处理 logic:
+                    # 如果 new_value 包含空格且没有引号，加上双引号
+                    # 其实 .env 通常不需要引号除非有特殊字符，但为了安全...
+                    
+                    out_lines.append(f"{m.group('prefix')}{new_value}{m.group('suffix')}")
+                    processed_keys.add(key)
+                    continue
             
-            out_lines.append(f"{m.group('prefix')}{new_value}{m.group('suffix')}")
-            replaced = True
+            out_lines.append(line)
         
-        if not replaced:
-            if out_lines and out_lines[-1].strip() != "":
-                out_lines.append("")
-            out_lines.append(f"STOCK_LIST={new_value}")
+        # 处理新增的 key
+        new_keys_added = False
+        for key, value in updates.items():
+            if key not in processed_keys:
+                if not new_keys_added and out_lines and out_lines[-1].strip() != "":
+                    out_lines.append("") # 添加空行分隔
+                out_lines.append(f"{key}={value}")
+                new_keys_added = True
         
         trailing_newline = env_text.endswith("\n") if env_text else True
         out = "\n".join(out_lines)
@@ -325,3 +373,68 @@ def get_config_service() -> ConfigService:
 def get_analysis_service() -> AnalysisService:
     """获取分析服务单例"""
     return AnalysisService.get_instance()
+
+
+def get_all_env_config() -> Dict[str, Any]:
+    """
+    获取所有环境变量配置
+    
+    Returns:
+        包含所有环境变量配置的字典，按类别分组
+    """
+    config = {
+        'stock_list': os.getenv('STOCK_LIST', ''),
+        'ai_config': {
+            'gemini_api_key': os.getenv('GEMINI_API_KEY', ''),
+            'gemini_model': os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
+            'gemini_temperature': os.getenv('GEMINI_TEMPERATURE', '0.7'),
+            'openai_api_key': os.getenv('OPENAI_API_KEY', ''),
+            'openai_base_url': os.getenv('OPENAI_BASE_URL', ''),
+            'openai_model': os.getenv('OPENAI_MODEL', 'gpt-4o-mini'),
+            'openai_temperature': os.getenv('OPENAI_TEMPERATURE', '0.7'),
+        },
+        'search_config': {
+            'tavily_api_keys': os.getenv('TAVILY_API_KEYS', ''),
+            'serpapi_api_keys': os.getenv('SERPAPI_API_KEYS', ''),
+        },
+        'notification_config': {
+            'wechat_webhook_url': os.getenv('WECHAT_WEBHOOK_URL', ''),
+            'feishu_webhook_url': os.getenv('FEISHU_WEBHOOK_URL', ''),
+            'telegram_bot_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
+            'telegram_chat_id': os.getenv('TELEGRAM_CHAT_ID', ''),
+            'email_sender': os.getenv('EMAIL_SENDER', ''),
+            'custom_webhook_urls': os.getenv('CUSTOM_WEBHOOK_URLS', ''),
+            'pushover_user_key': os.getenv('PUSHOVER_USER_KEY', ''),
+            'pushplus_token': os.getenv('PUSHPLUS_TOKEN', ''),
+            'discord_webhook_url': os.getenv('DISCORD_WEBHOOK_URL', ''),
+            'serverchan3_sendkey': os.getenv('SERVERCHAN3_SENDKEY', ''),
+        },
+        'webui_config': {
+            'webui_enabled': os.getenv('WEBUI_ENABLED', 'false'),
+            'webui_host': os.getenv('WEBUI_HOST', '127.0.0.1'),
+            'webui_port': os.getenv('WEBUI_PORT', '8000'),
+        },
+        'schedule_config': {
+            'schedule_enabled': os.getenv('SCHEDULE_ENABLED', 'false'),
+            'schedule_time': os.getenv('SCHEDULE_TIME', '18:00'),
+            'market_review_enabled': os.getenv('MARKET_REVIEW_ENABLED', 'false'),
+        },
+        'proxy_config': {
+            'use_proxy': os.getenv('USE_PROXY', 'false'),
+            'proxy_host': os.getenv('PROXY_HOST', '127.0.0.1'),
+            'proxy_port': os.getenv('PROXY_PORT', '7890'),
+        },
+        'system_config': {
+            'log_dir': os.getenv('LOG_DIR', './logs'),
+            'log_level': os.getenv('LOG_LEVEL', 'INFO'),
+            'max_workers': os.getenv('MAX_WORKERS', '3'),
+            'debug': os.getenv('DEBUG', 'false'),
+        },
+        'data_source_config': {
+            'efinance_priority': os.getenv('EFINANCE_PRIORITY', '0'),
+            'akshare_priority': os.getenv('AKSHARE_PRIORITY', '1'),
+            'tushare_priority': os.getenv('TUSHARE_PRIORITY', '2'),
+            'yfinance_priority': os.getenv('YFINANCE_PRIORITY', '4'),
+        },
+    }
+    return config

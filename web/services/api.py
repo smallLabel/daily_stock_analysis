@@ -28,10 +28,12 @@ import logging
 import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import os
+from fastapi.staticfiles import StaticFiles
 
 from nicegui import ui, app
 from src.enums import ReportType
-from web.services import get_analysis_service
+from .core import get_analysis_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,16 @@ class ApiEndpoints:
     
     def _register_endpoints(self):
         """注册所有API端点"""
+        
+        # 挂载静态文件目录 (web/services/ -> web/static)
+        # __file__ is web/services/api.py
+        # static dir is web/static
+        static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
+        if os.path.exists(static_dir):
+            app.mount('/web/static', StaticFiles(directory=static_dir), name='web_static')
+            logger.info(f"已挂载静态文件目录: {static_dir} -> /web/static")
+        else:
+            logger.warning(f"静态文件目录不存在: {static_dir}")
         
         @app.get('/health')
         async def health_check():

@@ -23,8 +23,8 @@ from http import HTTPStatus
 from datetime import datetime
 from typing import Dict, Any, TYPE_CHECKING
 
-from web.services import get_config_service, get_analysis_service
-from web.templates import render_config_page
+from .core import get_config_service, get_analysis_service
+from web.utils.templates import render_config_page
 from src.enums import ReportType
 
 if TYPE_CHECKING:
@@ -118,6 +118,25 @@ class PageHandler:
         normalized = self.config_service.set_stock_list(stock_list)
         env_filename = self.config_service.get_env_filename()
         body = render_config_page(normalized, env_filename, message="已保存")
+        return HtmlResponse(body)
+    
+    def handle_system_config(self) -> Response:
+        """处理系统配置页面请求 GET /system-config"""
+        import os
+        from pathlib import Path
+        
+        env_file = Path(__file__).parent.parent / '.env'
+        config_data = {}
+        
+        if env_file.exists():
+            with open(env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        config_data[key.strip()] = value.strip()
+        
+        body = render_system_config_page(config_data)
         return HtmlResponse(body)
 
 
