@@ -289,6 +289,12 @@ class AnalysisHistory(Base):
     # 情绪分数
     sentiment_score = Column(Integer, default=0)
     
+    # 次选买入点
+    secondary_buy_point = Column(Float, default=0.0)
+    
+    # 综合评分
+    score = Column(Integer, default=0)
+    
     # 信心等级
     confidence_level = Column(String(10), default='中')
     
@@ -318,10 +324,12 @@ class AnalysisHistory(Base):
             'name': self.stock_name,
             'price': self.current_price,
             'buy_point': self.buy_point,
+            'secondary_buy_point': self.secondary_buy_point,
             'stop_loss': self.stop_loss,
             'target_price': self.target_price,
             'signal': self.signal_type,
             'sentiment_score': self.sentiment_score,
+            'score': self.score,
             'confidence_level': self.confidence_level,
             'report_type': self.report_type,
             'core_conclusion': self.core_conclusion,
@@ -387,6 +395,26 @@ class DatabaseManager:
                 conn.execute(text("ALTER TABLE analysis_history ADD COLUMN result_json TEXT DEFAULT '{}'"))
                 conn.commit()
                 logger.info("已添加 result_json 列到 analysis_history 表")
+        except Exception:
+            # 列已存在或其他错误，忽略
+            pass
+        
+        # 尝试添加 secondary_buy_point 列 (Schema Migration)
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text("ALTER TABLE analysis_history ADD COLUMN secondary_buy_point FLOAT DEFAULT 0.0"))
+                conn.commit()
+                logger.info("已添加 secondary_buy_point 列到 analysis_history 表")
+        except Exception:
+            # 列已存在或其他错误，忽略
+            pass
+        
+        # 尝试添加 score 列 (Schema Migration)
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text("ALTER TABLE analysis_history ADD COLUMN score INTEGER DEFAULT 0"))
+                conn.commit()
+                logger.info("已添加 score 列到 analysis_history 表")
         except Exception:
             # 列已存在或其他错误，忽略
             pass
@@ -1102,6 +1130,11 @@ class DatabaseManager:
         """
         保存分析历史记录
         
+        策略：
+        - 检查数据库中是否已存在该股票的分析记录
+        - 如果存在，则更新最新的一条记录
+        - 如果不存在，则创建新记录
+        
         Args:
             analysis_data: 分析结果数据，包含code, name, price等字段
             
@@ -1110,31 +1143,76 @@ class DatabaseManager:
         """
         try:
             with self.get_session() as session:
+                stock_code = analysis_data.get('code', '')
+                
                 # 提取数据
                 dashboard = analysis_data.get('dashboard', {})
                 price_position = dashboard.get('data_perspective', {}).get('price_position', {})
                 core_conclusion = dashboard.get('core_conclusion', {})
+                battle_plan = dashboard.get('battle_plan', {})
                 
-                # 创建记录
-                history = AnalysisHistory(
-                    stock_code=analysis_data.get('code', ''),
-                    stock_name=analysis_data.get('name', ''),
-                    current_price=price_position.get('current_price', 0.0),
-                    buy_point=price_position.get('support_level', 0.0),
-                    stop_loss=price_position.get('resistance_level', 0.0) * 0.95,  # 简单估算
-                    target_price=price_position.get('resistance_level', 0.0),
-                    signal_type=core_conclusion.get('signal_type', '持有'),
-                    sentiment_score=analysis_data.get('sentiment_score', 0),
-                    confidence_level=analysis_data.get('confidence_level', '中'),
-
-                    report_type=analysis_data.get('report_type', 'simple'),
-                    core_conclusion=core_conclusion.get('one_sentence', ''),
-                    result_json=json.dumps(analysis_data, ensure_ascii=False)
-                )
+                # 提取次选买入点（从狙击点位中获取）
+                secondary_buy = 0.0
+                sniper_points = battle_plan.get('sniper_points', {})
+                if sniper_points:
+                    secondary_buy_str = sniper_points.get('secondary_buy', '')
+                    if secondary_buy_str:
+                        # 尝试提取数字，格式类似 "次选：1750元(短期回调支撑)"
+                        import re
+                        match = re.search(r'(\d+\.?\d*)', secondary_buy_str)
+                        if match:
+                            secondary_buy = float(match.group(1))
                 
-                session.add(history)
+                # 提取评分（从情绪分数获取，范围0-100）
+                score = analysis_data.get('sentiment_score', 0)
+                
+                # 准备数据字段 - 确保与前端弹窗显示逻辑一致（app.py 287行）
+                # 止损位计算：跌破MA20+3% (即 MA20 * 0.97)
+                ma20 = price_position.get('ma20', 0.0)
+                stop_loss_price = ma20 * 0.97 if ma20 > 0 else price_position.get('support_level', 0.0) * 0.95
+                
+                update_data = {
+                    'stock_name': analysis_data.get('name', ''),
+                    'current_price': price_position.get('current_price', 0.0),
+                    'buy_point': price_position.get('support_level', 0.0),  # MA5支撑位
+                    'secondary_buy_point': secondary_buy,
+                    'stop_loss': stop_loss_price,  # 与弹窗一致：MA20 * 0.97
+                    'target_price': price_position.get('resistance_level', 0.0),
+                    'signal_type': core_conclusion.get('signal_type', '持有'),
+                    'sentiment_score': analysis_data.get('sentiment_score', 0),
+                    'score': score,
+                    'confidence_level': analysis_data.get('confidence_level', '中'),
+                    'report_type': analysis_data.get('report_type', 'simple'),
+                    'core_conclusion': core_conclusion.get('one_sentence', ''),
+                    'result_json': json.dumps(analysis_data, ensure_ascii=False),
+                    'analyzed_at': datetime.now(),
+                    'updated_at': datetime.now()
+                }
+                
+                # 检查是否存在
+                existing = session.execute(
+                    select(AnalysisHistory)
+                    .where(AnalysisHistory.stock_code == stock_code)
+                    .order_by(desc(AnalysisHistory.analyzed_at))
+                    .limit(1)
+                ).scalar_one_or_none()
+                
+                if existing:
+                    # 更新现有记录
+                    for key, value in update_data.items():
+                        if hasattr(existing, key):
+                            setattr(existing, key, value)
+                    logger.info(f"更新分析历史成功: {stock_code}")
+                else:
+                    # 创建新记录
+                    history = AnalysisHistory(
+                        stock_code=stock_code,
+                        **update_data
+                    )
+                    session.add(history)
+                    logger.info(f"新增分析历史成功: {stock_code}")
+                
                 session.commit()
-                logger.info(f"保存分析历史成功: {analysis_data.get('code')}")
                 return True
                 
         except Exception as e:
@@ -1219,6 +1297,31 @@ class DatabaseManager:
                 return True
         except Exception as e:
             logger.error(f"删除分析历史失败: {e}")
+            return False
+
+    def clear_database(self) -> bool:
+        """
+        清空所有数据库表的数据
+        
+        Returns:
+            是否清空成功
+        """
+        try:
+            with self.get_session() as session:
+                # 按依赖关系反向清除（如果有外键）
+                # 目前模型间没有强外键约束，顺序不太重要，但保持良好的习惯
+                session.execute(AnalysisHistory.__table__.delete())
+                session.execute(WatchlistStock.__table__.delete())
+                session.execute(SectorComponent.__table__.delete())
+                session.execute(SectorInfo.__table__.delete())
+                session.execute(StockDaily.__table__.delete())
+                
+                session.commit()
+                logger.info("所有数据库表已清空")
+                return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"清空数据库失败: {e}")
             return False
 
 

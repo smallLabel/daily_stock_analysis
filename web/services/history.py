@@ -51,18 +51,42 @@ def load_history_page(page_num: int = 1, page_size: int = 10) -> tuple:
             else:
                 query_time = h.analyzed_at.strftime('%Y-%m-%d')
         
+        # 尝试提取次选买入点
+        extracted_secondary_buy = '-'
+        res_data = {}
+        try:
+            res_data = json.loads(h.result_json) if isinstance(h.result_json, str) else (h.result_json or {})
+            if res_data and 'dashboard' in res_data:
+                secondary_buy_raw = res_data.get('dashboard', {}).get('battle_plan', {}).get('sniper_points', {}).get('secondary_buy', '')
+                if secondary_buy_raw:
+                    import re
+                    match = re.search(r'(\d+\.?\d*)', secondary_buy_raw)
+                    if match:
+                         extracted_secondary_buy = match.group(1)
+        except:
+            pass
+
+        # 决定最终显示的次优买入价格
+        final_secondary_buy = '-'
+        if h.secondary_buy_point and h.secondary_buy_point > 0:
+             final_secondary_buy = f"{h.secondary_buy_point:.2f}"
+        elif extracted_secondary_buy != '-':
+             final_secondary_buy = extracted_secondary_buy
+
         records.append({
             'code': h.stock_code,
             'name': h.stock_name,
             'price': f"{h.current_price:.2f}" if h.current_price else '0.00',
             'buy_point': f"{h.buy_point:.2f}" if h.buy_point else '0.00',
+            'secondary_buy': final_secondary_buy,
             'stop_loss': f"{h.stop_loss:.2f}" if h.stop_loss else '0.00',
             'target_price': f"{h.target_price:.2f}" if h.target_price else '0.00',
             'signal': signal,
             'sentiment_score': h.sentiment_score or 0,
+            'score': h.score or 0,
             'core_conclusion': h.core_conclusion,
-            'result_json': json.loads(h.result_json) if h.result_json else {},
-            'change': '',  # 暂不显示涨跌幅
+            'result_json': res_data,
+            'change': '',
             'query_time': query_time
         })
     

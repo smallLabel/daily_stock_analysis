@@ -89,6 +89,18 @@ class StockAnalysisPipeline:
             logger.info("搜索服务已启用 (Tavily/SerpAPI)")
         else:
             logger.warning("搜索服务未启用（未配置 API Key）")
+        
+        # 进度回调
+        self.progress_callback = None
+    
+    def set_progress_callback(self, callback):
+        """
+        设置默认进度回调函数 (兼容旧代码)
+        
+        Args:
+            callback: 回调函数 callback(step: str, progress: int, message: str)
+        """
+        self.progress_callback = callback
     
     def fetch_and_save_stock_data(
         self, 
@@ -113,21 +125,41 @@ class StockAnalysisPipeline:
         try:
             today = date.today()
             
-            # 断点续传检查：如果今日数据已存在，跳过
-            if not force_refresh and self.db.has_today_data(code, today):
-                logger.info(f"[{code}] 今日数据已存在，跳过获取（断点续传）")
-                return True, None
+            # 1. 检查数据库中最后一天的数据
+            latest_records = self.db.get_latest_data(code, days=1)
+            last_db_date = latest_records[0].date if latest_records else None
             
-            # 从数据源获取数据
-            logger.info(f"[{code}] 开始从数据源获取数据 (近一年)...")
-            df, source_name = self.fetcher_manager.get_daily_data(code, days=365)
+            fetch_days = 365
+            
+            if last_db_date:
+                # 计算与今天的差值
+                delta_days = (today - last_db_date).days
+                
+                # 如果差值 > 1 (即不是昨天和今天)，说明有断档，需要补齐
+                # 如果差值 <= 1 (DB里是昨天)，也需要强制刷新今天，所以至少 fetch_days=1
+                if delta_days > 1:
+                    fetch_days = delta_days + 5 # 补齐断档 + 缓冲
+                    logger.info(f"[{code}] 增量更新: DB日期 {last_db_date}, 获取 {fetch_days} 天")
+                else:
+                    fetch_days = 1
+                    logger.info(f"[{code}] 强制刷新今日数据")
+            else:
+                logger.info(f"[{code}] 全量初始化: 获取近365天数据")
+            
+            # 2. 从数据源获取数据
+            df, source_name = self.fetcher_manager.get_daily_data(code, days=fetch_days)
             
             if df is None or df.empty:
                 return False, "获取数据为空"
             
-            # 保存到数据库
+            # 3. 保存到数据库
             saved_count = self.db.save_daily_data(df, code, source_name)
-            logger.info(f"[{code}] 数据保存成功（来源: {source_name}，新增 {saved_count} 条）")
+            
+            msg = f"来源 {source_name}, 条数 {saved_count}, 范围 {fetch_days}天"
+            if saved_count > 0:
+                logger.info(f"[{code}] 数据保存成功 ({msg})")
+            else:
+                logger.info(f"[{code}] 数据已是最新 ({msg})")
             
             return True, None
             
@@ -136,7 +168,11 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] {error_msg}")
             return False, error_msg
     
-    def analyze_stock(self, code: str) -> Optional[AnalysisResult]:
+    def analyze_stock(
+        self, 
+        code: str,
+        progress_callback=None
+    ) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
         
@@ -150,15 +186,21 @@ class StockAnalysisPipeline:
         
         Args:
             code: 股票代码
+            progress_callback: 进度回调函数
             
         Returns:
             AnalysisResult 或 None（如果分析失败）
         """
+        # 优先使用传入的回调，否则使用实例的回调
+        callback = progress_callback or self.progress_callback
         try:
             # 获取股票名称（优先从实时行情获取真实名称）
             stock_name = STOCK_NAME_MAP.get(code, '')
             
             # Step 1: 获取实时行情（量比、换手率等）- 使用统一入口，自动故障切换
+            if callback:
+                callback("数据获取", 15, "正在获取实时行情数据...")
+            
             realtime_quote = None
             try:
                 realtime_quote = self.fetcher_manager.get_realtime_quote(code)
@@ -194,6 +236,9 @@ class StockAnalysisPipeline:
                 logger.warning(f"[{code}] 获取筹码分布失败: {e}")
             
             # Step 3: 趋势分析（基于交易理念）
+            if callback:
+                callback("技术分析", 40, "正在计算技术指标和趋势判断...")
+            
             trend_result: Optional[TrendAnalysisResult] = None
             try:
                 # 获取历史数据进行趋势分析
@@ -210,6 +255,9 @@ class StockAnalysisPipeline:
                 logger.warning(f"[{code}] 趋势分析失败: {e}")
             
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
+            if callback:
+                callback("资讯查询", 60, "正在搜索最新资讯、公告和舆情信息...")
+            
             news_context = None
             if self.search_service.is_available:
                 logger.info(f"[{code}] 开始多维度情报搜索...")
@@ -257,7 +305,13 @@ class StockAnalysisPipeline:
             )
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
+            if callback:
+                callback("AI分析", 85, "AI正在综合分析，生成策略建议...")
+            
             result = self.analyzer.analyze(enhanced_context, news_context=news_context)
+            
+            if callback:
+                callback("完成", 100, "分析完成！")
             
             return result
             
@@ -370,7 +424,8 @@ class StockAnalysisPipeline:
         code: str,
         skip_analysis: bool = False,
         single_stock_notify: bool = False,
-        report_type: ReportType = ReportType.SIMPLE
+        report_type: ReportType = ReportType.SIMPLE,
+        progress_callback = None
     ) -> Optional[AnalysisResult]:
         """
         处理单只股票的完整流程
@@ -388,14 +443,21 @@ class StockAnalysisPipeline:
             skip_analysis: 是否跳过 AI 分析
             single_stock_notify: 是否启用单股推送模式（每分析完一只立即推送）
             report_type: 报告类型枚举（从配置读取，Issue #119）
+            progress_callback: 进度回调 (可选)
 
         Returns:
             AnalysisResult 或 None
         """
+        # 优先使用传入的回调，否则使用实例的回调
+        callback = progress_callback or self.progress_callback
+
         logger.info(f"========== 开始处理 {code} ==========")
         
         try:
             # Step 1: 获取并保存数据
+            if callback:
+                callback("数据获取", 5, "正在获取历史K线数据...")
+            
             success, error = self.fetch_and_save_stock_data(code)
             
             if not success:
@@ -407,7 +469,7 @@ class StockAnalysisPipeline:
                 logger.info(f"[{code}] 跳过 AI 分析（dry-run 模式）")
                 return None
             
-            result = self.analyze_stock(code)
+            result = self.analyze_stock(code, progress_callback=callback)
             
             if result:
                 logger.info(

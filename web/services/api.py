@@ -43,6 +43,22 @@ class ApiEndpoints:
     
     def __init__(self):
         self.analysis_service = get_analysis_service()
+        self.progress_store = {}  # 存储分析进度 {code: {step: str, progress: int, message: str}}
+        
+        # 初始化共享的 pipeline 实例
+        try:
+            from src.config import get_config
+            from main import StockAnalysisPipeline
+            config = get_config()
+            self.pipeline = StockAnalysisPipeline(
+                config=config,
+                max_workers=1
+            )
+            logger.info("Shared StockAnalysisPipeline initialized in ApiEndpoints")
+        except Exception as e:
+            logger.error(f"Failed to initialize shared StockAnalysisPipeline: {e}")
+            self.pipeline = None
+
         self._register_endpoints()
     
     def _register_endpoints(self):
@@ -83,6 +99,43 @@ class ApiEndpoints:
                 return {"success": False, "error": f"任务不存在: {id}"}
             return {"success": True, "task": task}
         
+        @app.get('/api/analyze/progress')
+        async def get_analysis_progress(code: str = None):
+            """
+            获取分析进度
+            
+            Args:
+                code: 股票代码
+            
+            Returns:
+                {
+                    "success": true,
+                    "step": "数据获取",
+                    "progress": 25,
+                    "message": "正在获取实时行情..."
+                }
+            """
+            if not code:
+                return {"success": False, "error": "缺少参数: code"}
+            
+            code = code.upper().strip()
+            progress_info = self.progress_store.get(code, {})
+            
+            if progress_info:
+                return {
+                    "success": True,
+                    "step": progress_info.get("step", "准备中"),
+                    "progress": progress_info.get("progress", 0),
+                    "message": progress_info.get("message", "")
+                }
+            else:
+                return {
+                    "success": True,
+                    "step": "准备中",
+                    "progress": 0,
+                    "message": "等待开始..."
+                }
+        
         @app.get('/api/analyze')
         async def analyze_stock_sync(code: str = None, report_type: str = 'simple'):
             """
@@ -113,16 +166,37 @@ class ApiEndpoints:
                 return {"success": False, "error": f"无效的股票代码格式: {code}"}
             
             try:
+                # 初始化进度
+                self.progress_store[code] = {
+                    "step": "准备中",
+                    "progress": 0,
+                    "message": "正在初始化分析流程..."
+                }
+                
                 # 使用asyncio在后台运行分析，不阻塞
                 loop = asyncio.get_event_loop()
+                
+                # 定义进度回调
+                def progress_callback(step: str, progress: int, message: str):
+                    self.progress_store[code] = {
+                        "step": step,
+                        "progress": progress,
+                        "message": message
+                    }
+                    logger.info(f"[{code}] 进度更新: {step} - {progress}% - {message}")
                 
                 # 在后台运行分析
                 result = await loop.run_in_executor(
                     None,
                     self._run_analysis_sync,
                     code,
-                    report_type
+                    report_type,
+                    progress_callback
                 )
+                
+                # 清理进度信息
+                if code in self.progress_store:
+                    del self.progress_store[code]
                 
                 if result:
                     return {"success": True, "result": result}
@@ -131,6 +205,9 @@ class ApiEndpoints:
                     
             except Exception as e:
                 logger.error(f"[API] 同步分析失败: {e}")
+                # 清理进度信息
+                if code in self.progress_store:
+                    del self.progress_store[code]
                 return {"success": False, "error": str(e)}
         
         @app.post('/api/analysis_history/save')
@@ -238,36 +315,33 @@ class ApiEndpoints:
                 logger.error(f"获取持仓摘要失败: {e}")
                 return {"success": False, "error": str(e)}
     
-    def _run_analysis_sync(self, code: str, report_type: str) -> Optional[Dict[str, Any]]:
+    def _run_analysis_sync(self, code: str, report_type: str, progress_callback=None) -> Optional[Dict[str, Any]]:
         """
         同步运行分析（在线程池中执行）
         
         Args:
             code: 股票代码
             report_type: 报告类型
+            progress_callback: 进度回调函数 callback(step, progress, message)
             
         Returns:
             分析结果字典
         """
         try:
             from src.config import get_config
-            from main import StockAnalysisPipeline
-            
-            config = get_config()
+            if not self.pipeline:
+                logger.error("Pipeline not initialized")
+                return None
+
             report_enum = ReportType.FULL if report_type == 'full' else ReportType.SIMPLE
-            
-            # 创建分析管道
-            pipeline = StockAnalysisPipeline(
-                config=config,
-                max_workers=1
-            )
-            
-            # 执行分析
-            result = pipeline.process_single_stock(
+
+            # 使用共享的 pipeline 实例
+            result = self.pipeline.process_single_stock(
                 code=code,
                 skip_analysis=False,
                 single_stock_notify=False,  # WebUI不需要推送通知
-                report_type=report_enum
+                report_type=report_enum,
+                progress_callback=progress_callback
             )
             
             if result and hasattr(result, 'to_dict'):

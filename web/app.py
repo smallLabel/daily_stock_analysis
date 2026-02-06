@@ -75,6 +75,7 @@ def index_page():
 
     # Add JavaScript helper functions
     ui.add_head_html('''
+    <script src="/web/static/progress.js"></script>
     <script>
     let analysisPolling = null;
     let currentAnalysisData = null;
@@ -83,7 +84,7 @@ def index_page():
     
     function validateStockCode(code) {
         if (!code || code.trim() === '') {
-            ui.notify('请输入股票代码', {type: 'warning', position: 'top'});
+            Quasar.Notify.create({ message: '请输入股票代码', type: 'warning', position: 'top' });
             return false;
         }
         
@@ -94,7 +95,7 @@ def index_page():
         const usSharePattern = /^[A-Z]{1,5}$/;
         
         if (!aSharePattern.test(code) && !hkSharePattern.test(code) && !usSharePattern.test(code)) {
-            ui.notify('股票代码格式不正确 (A股6位数字/港股5位/美股字母)', {type: 'warning', position: 'top'});
+            Quasar.Notify.create({ message: '股票代码格式不正确 (A股6位数字/港股5位/美股字母)', type: 'warning', position: 'top' });
             return false;
         }
         
@@ -103,7 +104,7 @@ def index_page():
     
     function setAnalyzingState(analyzing) {
         isAnalyzing = analyzing;
-        const button = document.querySelector('button[aria-label*="开始分析"], button:has(span:contains("开始分析"))');
+        const button = document.querySelector('.analyze-btn');
         const inputs = document.querySelectorAll('input, select');
         
         if (analyzing) {
@@ -126,6 +127,7 @@ def index_page():
     function showAnalysisResult() {
         const overlay = document.getElementById('analysis-overlay');
         if (overlay) {
+            overlay.classList.remove('hidden'); // Remove Tailwind hidden class
             overlay.style.display = 'flex';
             document.body.style.overflow = 'hidden'; // Prevent background scrolling
             // Trigger animation
@@ -141,19 +143,26 @@ def index_page():
     function hideAnalysisResult() {
         const overlay = document.getElementById('analysis-overlay');
         if (overlay) {
+            overlay.classList.add('hidden'); // Add Tailwind hidden class
             overlay.style.display = 'none';
             document.body.style.overflow = '';
         }
     }
     
     function showLoadingState(step = 'AI正在分析中...') {
-        showAnalysisResult();
+        // 先显示模态框
+        const overlay = document.getElementById('analysis-overlay');
+        if (overlay) {
+            overlay.classList.remove('hidden'); // Remove Tailwind hidden class
+            overlay.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
         
         const loadingHtml = `
-            <div class="w-full flex flex-col items-center justify-center py-12" style="min-height: 400px;">
-                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-                <p class="text-zinc-400 text-sm">${step}</p>
-                <p class="text-zinc-500 text-xs mt-2">正在获取行情数据、计算技术指标、搜索舆情资讯</p>
+            <div class="w-full flex flex-col items-center justify-center py-20 h-full">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1890ff] mb-6"></div>
+                <p class="text-[#ffffffd9] text-[16px] font-medium">${step}</p>
+                <p class="text-[#ffffff73] text-[14px] mt-2">正在获取行情数据、计算技术指标、搜索舆情资讯</p>
             </div>
         `;
         
@@ -166,7 +175,7 @@ def index_page():
     function showErrorState(message, code) {
         const retryButton = code ? `
             <button onclick="retryAnalysis('${code}')" 
-                    class="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm">
+                    class="mt-6 px-4 py-1.5 bg-[#177ddc] hover:bg-[#1890ff] text-white rounded-[4px] text-sm transition-colors shadow-sm">
                 重试分析
             </button>
         ` : '';
@@ -174,10 +183,10 @@ def index_page():
         const card = document.querySelector('[id*="analysis-content"]');
         if (card) {
             card.innerHTML = `
-                <div class="w-full flex flex-col items-center justify-center py-12" style="min-height: 400px;">
-                    <span class="material-icons text-red-500 mb-4" style="font-size: 48px;">error_outline</span>
-                    <p class="text-red-400 text-sm">分析失败</p>
-                    <p class="text-zinc-500 text-xs mt-2">${message || '请稍后重试'}</p>
+                <div class="w-full flex flex-col items-center justify-center py-20 h-full">
+                    <span class="material-icons text-[#ff4d4f] mb-4" style="font-size: 48px;">error_outline</span>
+                    <p class="text-[#ff4d4f] text-[16px] font-medium">分析失败</p>
+                    <p class="text-[#ffffff73] text-[14px] mt-2 max-w-md text-center">${message || '请稍后重试'}</p>
                     ${retryButton}
                 </div>
             `;
@@ -185,199 +194,233 @@ def index_page():
     }
     
     function renderAnalysisCard(data) {
-        currentAnalysisData = data;
-        const card = document.querySelector('[id*="analysis-content"]');
-        if (!card) return;
+        console.log('Rendering Analysis Card', data);
+        const safe = (text) => {
+            if (text === null || text === undefined) return '';
+            return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        };
+
+        try {
+            currentAnalysisData = data;
+            const card = document.querySelector('[id*="analysis-content"]');
+            if (!card) {
+                console.error('Card element [id*=analysis-content] not found');
+                return;
+            }
         
         const d = data.dashboard;
         
         const signalColors = {
-            '🟡持有观望': { bg: 'bg-amber-500/10', border: 'border-amber-500/20', text: 'text-amber-400' },
-            '🟢买入信号': { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', text: 'text-emerald-400' },
-            '🔴卖出信号': { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-400' },
+            '🟡持有观望': { bg: 'bg-[#faad14]/10', border: 'border-[#faad14]/20', text: 'text-[#faad14]' },
+            '🟢买入信号': { bg: 'bg-[#52c41a]/10', border: 'border-[#52c41a]/20', text: 'text-[#52c41a]' },
+            '🔴卖出信号': { bg: 'bg-[#ff4d4f]/10', border: 'border-[#ff4d4f]/20', text: 'text-[#ff4d4f]' },
         };
         const signalStyle = signalColors[d.core_conclusion.signal_type] || signalColors['🟡持有观望'];
         
-        const biasStatusColors = { '危险': 'text-red-400', '警戒': 'text-amber-400', '正常': 'text-emerald-400' };
-        const biasColor = biasStatusColors[d.data_perspective.price_position.bias_status] || 'text-zinc-400';
+        const biasStatusColors = { '危险': 'text-[#ff4d4f]', '警戒': 'text-[#faad14]', '正常': 'text-[#52c41a]' };
+        const biasColor = biasStatusColors[d.data_perspective.price_position.bias_status] || 'text-[#ffffff73]';
         
-        const chipColors = { '健康': 'text-emerald-400', '警惕': 'text-amber-400', '风险': 'text-red-400' };
-        const chipColor = chipColors[d.data_perspective.chip_structure.chip_health] || 'text-zinc-400';
+        const chipColors = { '健康': 'text-[#52c41a]', '警惕': 'text-[#faad14]', '风险': 'text-[#ff4d4f]' };
+        const chipColor = chipColors[d.data_perspective.chip_structure.chip_health] || 'text-[#ffffff73]';
         
         const priceDiff = d.data_perspective.price_position.current_price - d.data_perspective.price_position.ma5;
-        const diffColor = priceDiff > 0 ? 'text-emerald-400' : 'text-red-400';
+        const diffColor = priceDiff > 0 ? 'text-[#ff4d4f]' : 'text-[#52c41a]';
         const diffSign = priceDiff > 0 ? '+' : '';
         
-        const riskAlerts = d.intelligence.risk_alerts.map(r => `• ${r.replace('风险点', '')}`).join('');
-        const positiveCatalysts = d.intelligence.positive_catalysts.map(c => `• ${c.replace('利好', '')}`).join('');
-        const actionChecklist = d.battle_plan.action_checklist.map(check => `<div class="text-xs text-zinc-400 mt-0.5">${check}</div>`).join('');
-        
         const checklistHtml = d.battle_plan.action_checklist.map(check => 
-            `<div class="text-xs text-zinc-400 mt-0.5">${check}</div>`
+            `<div class="text-[12px] text-[#ffffff73] mt-1">${safe(check)}</div>`
         ).join('');
         
+        // 提取次优买入价格
+        const secondaryBuyPrice = (() => {
+            const sniper = d.battle_plan?.sniper_points?.secondary_buy || '';
+            const match = sniper.match(/(\d+\.?\d*)/);
+            return match ? parseFloat(match[1]).toFixed(2) : '-';
+        })();
+        
         card.innerHTML = `
-            <div class="w-full flex items-center justify-between p-4 bg-[#18181B] rounded-xl border border-[#27272A]">
+            <div class="w-full flex items-center justify-between p-4 bg-[#262626] rounded-lg border border-[#303030]">
                 <div class="flex items-center gap-4">
-                    <div class="flex flex-col gap-0">
-                        <span class="text-xl font-bold text-white">${data.code}</span>
-                        <span class="text-sm text-zinc-400">${data.name}</span>
+                    <div class="flex flex-col gap-0.5">
+                        <span class="text-[20px] font-bold text-[#ffffffd9]">${safe(data.code)}</span>
+                        <span class="text-[14px] text-[#ffffff73]">${safe(data.name)}</span>
                     </div>
                     <div class="relative w-16 h-16 flex items-center justify-center">
-                        <div class="absolute inset-0 rounded-full bg-gradient-to-br from-amber-500/20 to-blue-500/20 border border-amber-500/30"></div>
-                        <span class="text-2xl font-bold text-amber-400">${data.sentiment_score}</span>
+                        <div class="absolute inset-0 rounded-full bg-gradient-to-br from-[#faad14]/20 to-[#1890ff]/20 border border-[#faad14]/30"></div>
+                        <span class="text-2xl font-bold text-[#faad14]">${data.sentiment_score || 0}</span>
                     </div>
                     <div class="flex gap-2">
-                        <span class="px-3 py-1 rounded-full ${signalStyle.bg} ${signalStyle.text} text-sm border ${signalStyle.border}">${d.core_conclusion.signal_type}</span>
-                        <span class="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-sm border border-blue-500/20">信心:${data.confidence_level}</span>
+                        <span class="px-3 py-1 rounded-[4px] ${signalStyle.bg} ${signalStyle.text} text-sm border ${signalStyle.border}">${safe(d.core_conclusion.signal_type)}</span>
+                        <span class="px-3 py-1 rounded-[4px] bg-[#1890ff]/10 text-[#1890ff] text-sm border border-[#1890ff]/20">信心:${safe(data.confidence_level)}</span>
                     </div>
                 </div>
                 <div class="flex flex-col items-end gap-1">
-                    <span class="text-2xl font-bold text-white">¥${d.data_perspective.price_position.current_price.toLocaleString()}</span>
-                    <span class="text-sm ${diffColor}">${diffSign}${priceDiff.toFixed(1)}元(MA5)${diffSign}${d.data_perspective.price_position.bias_ma5.toFixed(1)}%</span>
+                    <span class="text-[24px] font-bold text-[#ffffffd9] font-mono">¥${d.data_perspective.price_position.current_price.toLocaleString()}</span>
+                    <span class="text-xs ${diffColor} font-mono">${diffSign}${priceDiff.toFixed(1)}元(MA5)${diffSign}${d.data_perspective.price_position.bias_ma5.toFixed(1)}%</span>
                 </div>
             </div>
             
-            <div class="w-full p-4 bg-[#27272A]/50 rounded-xl mt-2">
+            <div class="w-full p-4 bg-[#262626] rounded-lg border border-[#303030] mt-3">
                 <div class="flex items-start">
-                    <span class="material-icons mr-2 shrink-0 text-amber-400" style="font-size: 20px;">tips_and_updates</span>
+                    <span class="material-icons mr-2 shrink-0 text-[#faad14] mt-0.5" style="font-size: 20px;">tips_and_updates</span>
                     <div class="flex flex-col gap-1">
-                        <span class="text-xs text-zinc-400 uppercase tracking-wider">核心结论</span>
-                        <span class="text-white font-medium">${d.core_conclusion.one_sentence}</span>
-                        <div class="flex gap-4 mt-2">
-                            <div class="flex flex-col gap-0">
-                                <span class="text-xs text-zinc-500">空仓建议</span>
-                                <span class="text-sm text-zinc-300">${d.core_conclusion.position_advice.no_position}</span>
+                        <span class="text-[12px] text-[#ffffff73] uppercase tracking-wider">核心结论</span>
+                        <span class="text-[#ffffffd9] font-medium text-[15px]">${safe(d.core_conclusion.one_sentence)}</span>
+                        <div class="flex gap-8 mt-3">
+                            <div class="flex flex-col gap-0.5">
+                                <span class="text-[12px] text-[#ffffff73]">空仓建议</span>
+                                <span class="text-[14px] text-[#ffffffd9]">${safe(d.core_conclusion.position_advice.no_position)}</span>
                             </div>
-                            <div class="flex flex-col gap-0">
-                                <span class="text-xs text-zinc-500">持仓建议</span>
-                                <span class="text-sm text-zinc-300">${d.core_conclusion.position_advice.has_position}</span>
+                            <div class="flex flex-col gap-0.5">
+                                <span class="text-[12px] text-[#ffffff73]">持仓建议</span>
+                                <span class="text-[14px] text-[#ffffffd9]">${safe(d.core_conclusion.position_advice.has_position)}</span>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <div class="grid grid-cols-4 gap-3 w-full mt-2">
-                <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                    <span class="text-xs text-zinc-500">理想买入</span>
-                    <div class="text-lg font-bold text-emerald-400">¥${d.data_perspective.price_position.support_level.toFixed(0)}</div>
-                    <span class="text-xs text-zinc-600">MA5支撑</span>
+            <div class="grid grid-cols-5 gap-3 w-full mt-3">
+                <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                    <span class="text-[12px] text-[#ffffff73]">理想买入</span>
+                    <div class="text-[18px] font-bold text-[#52c41a] font-mono mt-1">¥${d.data_perspective.price_position.support_level.toFixed(2)}</div>
+                    <span class="text-[12px] text-[#ffffff73]">MA5支撑</span>
                 </div>
-                <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                    <span class="text-xs text-zinc-500">止损位</span>
-                    <div class="text-lg font-bold text-red-400">¥${(d.data_perspective.price_position.ma20 * 0.97).toFixed(0)}</div>
-                    <span class="text-xs text-zinc-600">跌破MA20+3%</span>
+                <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                    <span class="text-[12px] text-[#ffffff73]">次优买入</span>
+                    <div class="text-[18px] font-bold text-[#faad14] font-mono mt-1">¥${secondaryBuyPrice}</div>
+                    <span class="text-[12px] text-[#ffffff73]">回调支撑</span>
                 </div>
-                <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                    <span class="text-xs text-zinc-500">目标位</span>
-                    <div class="text-lg font-bold text-blue-400">¥${parseInt(d.data_perspective.price_position.resistance_level).toLocaleString()}</div>
-                    <span class="text-xs text-zinc-600">整数关口</span>
+                <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                    <span class="text-[12px] text-[#ffffff73]">止损位</span>
+                    <div class="text-[18px] font-bold text-[#ff4d4f] font-mono mt-1">¥${(d.data_perspective.price_position.ma20 * 0.97).toFixed(2)}</div>
+                    <span class="text-[12px] text-[#ffffff73]">跌破MA20+3%</span>
                 </div>
-                <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                    <span class="text-xs text-zinc-500">趋势判断</span>
-                    <div class="text-lg font-bold text-white">${data.trend_prediction}</div>
-                    <span class="text-xs text-zinc-600">${d.core_conclusion.time_sensitivity}</span>
+                <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                    <span class="text-[12px] text-[#ffffff73]">目标位</span>
+                    <div class="text-[18px] font-bold text-[#1890ff] font-mono mt-1">¥${d.data_perspective.price_position.resistance_level.toFixed(2)}</div>
+                    <span class="text-[12px] text-[#ffffff73]">整数关口</span>
+                </div>
+                <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                    <span class="text-[12px] text-[#ffffff73]">趋势判断</span>
+                    <div class="text-[18px] font-bold text-[#ffffffd9] mt-1">${safe(data.trend_prediction)}</div>
+                    <span class="text-[12px] text-[#ffffff73]">${safe(d.core_conclusion.time_sensitivity)}</span>
                 </div>
             </div>
             
-            <div class="flex gap-3 w-full mt-2">
-                <div class="flex-1 flex flex-col gap-2">
-                    <span class="text-sm font-bold text-white">数据透视</span>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-medium text-white">📈 趋势状态</span>
-                            <span class="text-xs text-zinc-500">评分:${d.data_perspective.trend_status.trend_score}</span>
+            <div class="flex flex-col gap-4 w-full mt-3">
+                <div class="flex flex-col gap-2">
+                    <span class="text-[14px] font-bold text-[#ffffffd9]">数据透视</span>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[14px] font-medium text-[#ffffffd9]">📈 趋势状态</span>
+                                <span class="text-[12px] text-[#ffffff73]">评分:${d.data_perspective.trend_status.trend_score}</span>
+                            </div>
+                            <span class="text-[12px] text-[#ffffff73]">${safe(d.data_perspective.trend_status.ma_alignment)}</span>
                         </div>
-                        <span class="text-xs text-zinc-400">${d.data_perspective.trend_status.ma_alignment}</span>
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-medium text-white">💰 价位分析</span>
-                            <span class="text-xs ${biasColor}">乖离:${d.data_perspective.price_position.bias_ma5.toFixed(1)}%</span>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[14px] font-medium text-[#ffffffd9]">💰 价位分析</span>
+                                <span class="text-[12px] ${biasColor}">乖离:${d.data_perspective.price_position.bias_ma5.toFixed(1)}%</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <span class="text-[12px] text-[#ffffff73] font-mono">MA5:${d.data_perspective.price_position.ma5.toFixed(1)}</span>
+                                <span class="text-[12px] text-[#ffffff73] font-mono">MA10:${d.data_perspective.price_position.ma10.toFixed(1)}</span>
+                                <span class="text-[12px] text-[#ffffff73] font-mono">MA20:${d.data_perspective.price_position.ma20.toFixed(1)}</span>
+                                <span class="text-[12px] text-[#ffffff73] font-mono">支撑:${d.data_perspective.price_position.support_level.toFixed(0)}</span>
+                            </div>
                         </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <span class="text-xs text-zinc-500">MA5:${d.data_perspective.price_position.ma5.toFixed(1)}</span>
-                            <span class="text-xs text-zinc-500">MA10:${d.data_perspective.price_position.ma10.toFixed(1)}</span>
-                            <span class="text-xs text-zinc-500">MA20:${d.data_perspective.price_position.ma20.toFixed(1)}</span>
-                            <span class="text-xs text-zinc-500">支撑:${d.data_perspective.price_position.support_level.toFixed(0)}</span>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[14px] font-medium text-[#ffffffd9]">📊 量能分析</span>
+                                <span class="text-[12px] text-[#ffffff73]">${safe(d.data_perspective.volume_analysis.volume_status)}</span>
+                            </div>
+                            <span class="text-[12px] text-[#ffffff73] leading-relaxed block">${safe(d.data_perspective.volume_analysis.volume_meaning)}</span>
+                            <div class="mt-2 pt-2 border-t border-[#303030] flex justify-between">
+                                <span class="text-[12px] text-[#ffffff73]">量比: <span class="text-[#ffffffd9]">${d.data_perspective.volume_analysis.volume_ratio.toFixed(2)}</span></span>
+                                <span class="text-[12px] text-[#ffffff73]">换手率: <span class="text-[#ffffffd9]">${d.data_perspective.volume_analysis.turnover_rate.toFixed(2)}%</span></span>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-medium text-white">📊 量能分析</span>
-                            <span class="text-xs text-zinc-500">${d.data_perspective.volume_analysis.volume_status}</span>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[14px] font-medium text-[#ffffffd9]">🎯 筹码结构</span>
+                                <span class="text-[12px] ${chipColor}">${safe(d.data_perspective.chip_structure.chip_health)}</span>
+                            </div>
+                            <div class="space-y-1">
+                                <span class="text-[12px] text-[#ffffff73] block">获利盘: <span class="text-[#ffffffd9]">${d.data_perspective.chip_structure.profit_ratio.toFixed(0)}%</span> | 集中度: <span class="text-[#ffffffd9]">${d.data_perspective.chip_structure.concentration.toFixed(1)}</span></span>
+                                <span class="text-[12px] text-[#ffffff73] block">平均成本: <span class="text-[#ffffffd9] font-mono">¥${d.data_perspective.chip_structure.avg_cost.toFixed(1)}</span></span>
+                            </div>
                         </div>
-                        <span class="text-xs text-zinc-400">${d.data_perspective.volume_analysis.volume_meaning}</span>
-                        <span class="text-xs text-zinc-500 mt-1">量比:${d.data_perspective.volume_analysis.volume_ratio.toFixed(2)} | 换手率:${d.data_perspective.volume_analysis.turnover_rate.toFixed(2)}%</span>
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-sm font-medium text-white">🎯 筹码结构</span>
-                            <span class="text-xs ${chipColor}">${d.data_perspective.chip_structure.chip_health}</span>
-                        </div>
-                        <span class="text-xs text-zinc-500">获利盘:${d.data_perspective.chip_structure.profit_ratio.toFixed(0)}% | 集中度:${d.data_perspective.chip_structure.concentration.toFixed(1)}</span>
-                        <span class="text-xs text-zinc-500">平均成本:¥${d.data_perspective.chip_structure.avg_cost.toFixed(1)}</span>
                     </div>
                 </div>
                 
-                <div class="flex-1 flex flex-col gap-2">
-                    <span class="text-sm font-bold text-white">情报分析</span>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <span class="text-xs font-medium text-white mb-1">📰 最新消息</span>
-                        <span class="text-xs text-zinc-400 block mt-1">${d.intelligence.latest_news}</span>
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <span class="text-xs font-medium text-red-400 mb-1">⚠️ 风险提示</span>
-                        ${d.intelligence.risk_alerts.map(r => `<span class="text-xs text-zinc-400 block">• ${r.replace('风险点', '')}</span>`).join('')}
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <span class="text-xs font-medium text-emerald-400 mb-1">💡 利好因素</span>
-                        ${d.intelligence.positive_catalysts.map(c => `<span class="text-xs text-zinc-400 block">• ${c.replace('利好', '')}</span>`).join('')}
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <span class="text-xs font-medium text-white mb-1">🎯 战斗计划</span>
-                        <span class="text-xs text-amber-400 block">${d.battle_plan.position_strategy.suggested_position}</span>
-                        <span class="text-xs text-zinc-400 block mt-1">${d.battle_plan.position_strategy.entry_plan}</span>
-                        <span class="text-xs text-zinc-400 block mt-1">${d.battle_plan.position_strategy.risk_control}</span>
-                    </div>
-                    
-                    <div class="p-3 bg-[#18181B] rounded-lg border border-[#27272A]">
-                        <span class="text-xs font-medium text-white mb-1">✅ 操作检查项</span>
-                        ${checklistHtml}
+                <div class="flex flex-col gap-2">
+                    <span class="text-[14px] font-bold text-[#ffffffd9]">情报分析</span>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030] col-span-2">
+                            <span class="text-[12px] font-medium text-[#ffffffd9] mb-1 block">📰 最新消息</span>
+                            <span class="text-[12px] text-[#ffffff73] block leading-relaxed">${safe(d.intelligence.latest_news)}</span>
+                        </div>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <span class="text-[12px] font-medium text-[#ff4d4f] mb-1 block">⚠️ 风险提示</span>
+                            ${d.intelligence.risk_alerts.map(r => `<span class="text-[12px] text-[#ffffffd9] block mt-1">• ${safe(r.replace('风险点', ''))}</span>`).join('')}
+                        </div>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <span class="text-[12px] font-medium text-[#52c41a] mb-1 block">💡 利好因素</span>
+                            ${d.intelligence.positive_catalysts.map(c => `<span class="text-[12px] text-[#ffffffd9] block mt-1">• ${safe(c.replace('利好', ''))}</span>`).join('')}
+                        </div>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <span class="text-[12px] font-medium text-[#ffffffd9] mb-1 block">🎯 战斗计划</span>
+                            <span class="text-[13px] text-[#faad14] block font-medium">${safe(d.battle_plan.position_strategy.suggested_position)}</span>
+                            <span class="text-[12px] text-[#ffffff73] block mt-1 leading-relaxed">${safe(d.battle_plan.position_strategy.entry_plan)}</span>
+                            <div class="mt-2 pt-2 border-t border-[#303030]">
+                                <span class="text-[12px] text-[#ffffff73] block">${safe(d.battle_plan.position_strategy.risk_control)}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030]">
+                            <span class="text-[12px] font-medium text-[#ffffffd9] mb-1 block">✅ 操作检查项</span>
+                            ${checklistHtml}
+                        </div>
                     </div>
                 </div>
             </div>
             
-            <div class="w-full p-3 bg-amber-500/5 rounded-lg border border-amber-500/10 mt-2">
+            <div class="w-full p-3 bg-[#faad14]/5 rounded-lg border border-[#faad14]/20 mt-3">
                 <div class="flex items-start">
-                    <span class="material-icons mr-2 shrink-0 self-start mt-0.5 text-amber-400" style="font-size: 18px;">summarize</span>
+                    <span class="material-icons mr-2 shrink-0 self-start mt-0.5 text-[#faad14]" style="font-size: 18px;">summarize</span>
                     <div class="flex flex-col gap-1">
-                        <span class="text-xs text-amber-400 uppercase tracking-wider">分析摘要</span>
-                        <span class="text-xs text-zinc-300">${data.analysis_summary}</span>
+                        <span class="text-[12px] text-[#faad14] uppercase tracking-wider">分析摘要</span>
+                        <span class="text-[13px] text-[#ffffffd9] leading-relaxed">${safe(data.analysis_summary)}</span>
                     </div>
                 </div>
             </div>
         `;
+        } catch (e) {
+            console.error('Error rendering analysis card:', e);
+            const card = document.querySelector('[id*="analysis-content"]');
+            if (card) {
+                card.innerHTML = `<div class="p-4 flex items-center justify-center flex-col text-[#ff4d4f]"><span class="material-icons text-4xl mb-2">error</span><span>渲染界面时发生错误</span><span class="text-xs text-[#ffffff73] mt-1">${e.message}</span></div>`;
+            }
+        }
     }
     
     let retryCode = null;
     
-    async function submitStockAnalysis(code, reportType) {
+    async function submitStockAnalysis(code) {
         if (!validateStockCode(code)) {
             return;
         }
         
         if (isAnalyzing) {
-            ui.notify('分析进行中，请稍候...', {type: 'info', position: 'top'});
+            Quasar.Notify.create({ message: '分析进行中，请稍候...', type: 'info', position: 'top' });
             return;
         }
         
@@ -387,29 +430,45 @@ def index_page():
             retryCode = code;
             
             setAnalyzingState(true);
-            showLoadingState('正在连接AI分析服务...');
             
-            const reportTypeMap = {'精简报告': 'simple', '完整报告': 'full'};
-            const apiReportType = reportTypeMap[reportType] || 'simple';
+            // 使用新的进度追踪UI
+            if (typeof showLoadingStateWithProgress === 'function') {
+                showLoadingStateWithProgress(code);
+            } else {
+                showLoadingState('正在连接AI分析服务...');
+            }
+            
+            const apiReportType = 'full';
             
             const response = await fetch('/api/analyze?code=' + encodeURIComponent(code) + '&report_type=' + encodeURIComponent(apiReportType));
             const data = await response.json();
             
+            console.log('分析响应:', data); // 调试日志
+            
             if (data.success && data.result) {
-                showAnalysisResult();
+                // 确保模态框显示并渲染结果
+                const overlay = document.getElementById('analysis-overlay');
+                if (overlay) {
+                    overlay.classList.remove('hidden'); // Remove Tailwind hidden class
+                    overlay.style.display = 'flex';
+                }
                 renderAnalysisCard(data.result);
                 window.dispatchEvent(new Event('historyUpdated'));
-                ui.notify('✅ 分析完成！', {type: 'positive', position: 'top-right'});
+                Quasar.Notify.create({ message: '✅ 分析完成！', type: 'positive', position: 'top-right' });
             } else {
                 showErrorState(data.error || '分析失败，请检查股票代码是否正确', code);
-                ui.notify('❌ ' + (data.error || '分析失败'), {type: 'negative', position: 'top-right'});
+                Quasar.Notify.create({ message: '❌ ' + (data.error || '分析失败'), type: 'negative', position: 'top-right' });
             }
         } catch (error) {
             console.error('分析请求失败:', error);
             showErrorState('网络请求失败: ' + error.message, retryCode);
-            ui.notify('❌ 请求失败: ' + error.message, {type: 'negative', position: 'top-right'});
+            Quasar.Notify.create({ message: '❌ 请求失败: ' + error.message, type: 'negative', position: 'top-right' });
         } finally {
             setAnalyzingState(false);
+            // 停止进度轮询
+            if (typeof stopProgressPolling === 'function') {
+                stopProgressPolling();
+            }
         }
     }
     
@@ -420,7 +479,7 @@ def index_page():
                 input.value = code;
                 input.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            submitStockAnalysis(code || retryCode, 'simple');
+            submitStockAnalysis(code || retryCode);
         }
     }
     
@@ -430,7 +489,7 @@ def index_page():
             input.value = code;
             input.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        submitStockAnalysis(code, 'simple');
+        submitStockAnalysis(code);
     }
     
     </script>
@@ -477,45 +536,56 @@ def index_page():
             
             with ui.row().classes('flex-grow items-center gap-3 ml-4'):
                 code_input = ui.input(placeholder='输入代码 (如: 600519)').classes('flex-grow').props('outlined dense dark color=blue-6').style('background-color: transparent;')
-                code_input.on('keydown.enter', lambda: ui.run_javascript(f'submitStockAnalysis("{code_input.value}", "{report_type_select.value}")'))
                 
-                report_type_select = ui.select(['精简报告', '完整报告'], value='精简报告').classes('w-32').props('outlined dense dark color=blue-6')
-                ui.button('开始分析', icon='auto_awesome').classes('bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-md shadow-sm transition-colors').on_click(
-                    lambda: ui.run_javascript(f'submitStockAnalysis("{code_input.value}", "{report_type_select.value}")')
-                )
+                async def analyze_stock():
+                    code = code_input.value
+                    if not code:
+                        ui.notify('请输入股票代码', type='warning')
+                        return
+                    await ui.run_javascript(f'submitStockAnalysis("{code}")')
+                
+                code_input.on('keydown.enter', analyze_stock)
+                
+                ui.button('开始分析', icon='auto_awesome').classes('bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-md shadow-sm transition-colors analyze-btn').on_click(analyze_stock)
         
         # 2. Analysis Result Modal (Popup)
         # Use a fixed overlay that covers the screen
+        # 3. Analysis Result Modal (Popup) - Ant Design Style
+        # Use a fixed overlay that covers the screen
         with ui.element('div').props('id=analysis-overlay').classes(
-            'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/80 backdrop-blur-sm modal-fade-in'
-        ).style('display: none;') as analysis_overlay:
-            # Click outside to close (optional, but good UX)
-            # We can't easily do click-outside in pure NiceGUI without JS for the parent vs child separation, 
-            # so we'll rely on the close button or careful JS connection if needed.
-            # For now, we utilize the structure.
+            'fixed inset-0 z-[9999] hidden items-center justify-center bg-black/45 modal-fade-in'
+        ) as analysis_overlay:
+            # Click outside to close implementation could be added here with JS if needed
 
             # Modal Window
-            with ui.column().classes(
-                'modal-window w-full max-w-5xl max-h-[90vh] bg-[#09090B] border border-[#27272A] rounded-2xl shadow-2xl overflow-hidden relative'
+            with ui.element('div').classes(
+                'modal-window w-[1000px] max-w-[95vw] max-h-[85vh] bg-[#1f1f1f] rounded-lg shadow-2xl overflow-hidden relative flex flex-col flex-nowrap'
             ):
                 # Modal Header
-                with ui.row().classes('w-full items-center justify-between px-6 py-4 border-b border-[#27272A] bg-[#18181B] shrink-0'):
+                with ui.row().classes('w-full items-center justify-between px-6 py-4 border-b border-[#303030] bg-[#1f1f1f] shrink-0'):
                     with ui.row().classes('items-center gap-2'):
-                        ui.icon('analytics', color=Colors.PRIMARY)
-                        ui.label('深度分析报告').classes('text-lg font-bold text-white')
+                        # ui.icon('analytics', color=Colors.PRIMARY).classes('text-[18px]')
+                        ui.label('深度分析报告').classes('text-[16px] font-semibold text-[#ffffffd9]')
                     
-                    with ui.row().classes('gap-2'):
-                        ui.button('重新分析', icon='refresh').props('flat dense').classes('text-zinc-400 hover:text-blue-400').on_click(
-                            lambda: ui.run_javascript('retryAnalysis(currentStockCode)')
-                        )
-                        ui.button(icon='close').props('flat round dense').classes('text-zinc-400 hover:text-white hover:bg-zinc-800').on_click(
-                            lambda: ui.run_javascript('hideAnalysisResult()')
-                        )
+                    # Close X Button
+                    ui.button(icon='close').props('flat round dense size=sm').classes('text-[#ffffff73] hover:text-[#ffffffd9]').on_click(
+                        lambda: ui.run_javascript('hideAnalysisResult()')
+                    )
 
                 # Modal Content (Scrollable)
-                with ui.column().classes('w-full p-6 overflow-y-auto custom-scrollbar').props('id=analysis-content'):
+                # Using #1f1f1f to match AntD modal body background
+                with ui.element('div').classes('w-full p-6 overflow-y-auto custom-scrollbar text-[#ffffffd9] flex-1 flex flex-col flex-nowrap').props('id=analysis-content').style('font-size: 14px; line-height: 1.5715;'):
                     # Content will be injected by JavaScript
                     pass
+                
+                # Modal Footer
+                with ui.row().classes('w-full items-center justify-end px-4 py-3 border-t border-[#303030] bg-[#1f1f1f] shrink-0 gap-2'):
+                    ui.button('关闭').props('outline').classes('text-[#ffffffd9] border-[#434343] hover:text-[#40a9ff] hover:border-[#40a9ff] px-4 rounded-[4px]').on_click(
+                        lambda: ui.run_javascript('hideAnalysisResult()')
+                    )
+                    ui.button('重新分析', icon='refresh').classes('bg-[#177ddc] text-white hover:bg-[#1890ff] px-4 rounded-[4px] shadow-none border-none').on_click(
+                        lambda: ui.run_javascript('retryAnalysis(currentStockCode)')
+                    )
         
         # 3. Recent Analysis List with Pagination
         ui.label('近期分析记录').classes(Styles.H2 + ' text-lg mb-1 shrink-0')
@@ -540,7 +610,11 @@ def index_page():
                             with ui.element('th').classes('px-4 py-3 font-semibold text-right'):
                                 ui.label('理想买入')
                             with ui.element('th').classes('px-4 py-3 font-semibold text-right'):
+                                ui.label('次优买入')
+                            with ui.element('th').classes('px-4 py-3 font-semibold text-right'):
                                 ui.label('止损位')
+                            with ui.element('th').classes('px-4 py-3 font-semibold text-center'):
+                                ui.label('评分')
                             with ui.element('th').classes('px-4 py-3 font-semibold text-center'):
                                 ui.label('信号')
                             with ui.element('th').classes('px-4 py-3 font-semibold text-center'):
@@ -585,16 +659,16 @@ def index_page():
             if not page_stocks:
                 with tbody:
                     with ui.element('tr'):
-                        with ui.element('td').props('colspan=8').classes('px-4 py-12 text-center text-zinc-500'):
+                        with ui.element('td').props('colspan=10').classes('px-4 py-12 text-center text-zinc-500'):
                             ui.label('暂无分析记录，试试分析一只股票吧！').classes('text-sm')
                 return
             
             with tbody:
                 for stock in page_stocks:
-                    with ui.element('tr').classes('hover:bg-[#27272A]/50 transition-colors cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
-                        with ui.element('td').classes('px-4 py-3 font-mono font-medium text-white'):
+                    with ui.element('tr').classes('hover:bg-[#27272A]/50 transition-colors'):
+                        with ui.element('td').classes('px-4 py-3 font-mono font-medium text-white cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['code'])
-                        with ui.element('td').classes('px-4 py-3'):
+                        with ui.element('td').classes('px-4 py-3 cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['name']).classes('font-medium text-white')
                             if stock['code'].isdigit():
                                 ui.label('A股').classes('text-xs text-zinc-500')
@@ -602,23 +676,31 @@ def index_page():
                                 ui.label('港股').classes('text-xs text-zinc-500')
                             else:
                                 ui.label('美股').classes('text-xs text-zinc-500')
-                        with ui.element('td').classes('px-4 py-3 text-right'):
+                        with ui.element('td').classes('px-4 py-3 text-right cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['price']).classes('font-mono text-white')
-                        with ui.element('td').classes('px-4 py-3 text-right'):
+                        with ui.element('td').classes('px-4 py-3 text-right cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['buy_point']).classes('font-mono text-emerald-400')
-                        with ui.element('td').classes('px-4 py-3 text-right'):
+                        with ui.element('td').classes('px-4 py-3 text-right cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
+                            ui.label(stock.get('secondary_buy', '-')).classes('font-mono text-amber-400')
+                        with ui.element('td').classes('px-4 py-3 text-right cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['stop_loss']).classes('font-mono text-red-400')
-                        with ui.element('td').classes('px-4 py-3 text-center'):
+                        with ui.element('td').classes('px-4 py-3 text-center cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
+                            score = stock.get('score', 0)
+                            score_color = 'text-emerald-400' if score >= 70 else ('text-amber-400' if score >= 50 else 'text-red-400')
+                            ui.label(str(score)).classes(f'font-mono font-bold {score_color}')
+                        with ui.element('td').classes('px-4 py-3 text-center cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             if stock['signal'] == 'buy':
                                 ui.label('强力买入').classes(Styles.BADGE_SUCCESS)
                             elif stock['signal'] == 'sell':
                                 ui.label('卖出').classes(Styles.BADGE_ERROR)
                             else:
                                 ui.label('持有').classes(Styles.BADGE_WARNING)
-                        with ui.element('td').classes('px-4 py-3 text-center text-zinc-400'):
+                        with ui.element('td').classes('px-4 py-3 text-center text-zinc-400 cursor-pointer').on('click', lambda _, r=stock: show_history_record(r)):
                             ui.label(stock['query_time'])
                         with ui.element('td').classes('px-4 py-3 text-center'):
-                            ui.button(icon='arrow_forward', color='grey-8').props('flat round size=sm').classes('hover:text-blue-500')
+                            with ui.row().classes('gap-1 items-center justify-center'):
+                                ui.button(icon='visibility', color='grey-8').props('flat round size=sm').classes('hover:text-blue-500').on('click', lambda _, r=stock: show_history_record(r))
+                                ui.button(icon='refresh', color='grey-8').props('flat round size=sm').classes('hover:text-green-500').on('click', lambda e, code=stock['code']: (e.stopPropagation(), ui.run_javascript(f'quickAnalyze("{code}")')))
         
         pagination = create_pagination(
             total=total_records,
@@ -629,6 +711,27 @@ def index_page():
         )
         
         update_table(1)
+        
+        # 创建一个隐藏的刷新按钮，用于通过JavaScript触发表格刷新
+        refresh_trigger = ui.button('', on_click=lambda: update_table(1)).classes('hidden').props('id=refresh-trigger')
+        
+        # 添加事件监听器，当分析完成后自动刷新表格
+        ui.add_head_html('''
+        <script>
+        window.addEventListener('DOMContentLoaded', function() {
+            window.addEventListener('historyUpdated', function() {
+                console.log('历史记录已更新，刷新表格...');
+                // 等待一下确保数据已保存，然后触发表格刷新
+                setTimeout(function() {
+                    const refreshBtn = document.getElementById('refresh-trigger');
+                    if (refreshBtn) {
+                        refreshBtn.click();
+                    }
+                }, 300);
+            });
+        });
+        </script>
+        ''')
         
 
 
