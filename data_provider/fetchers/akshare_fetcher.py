@@ -1622,6 +1622,122 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取全市场快照失败: {e}")
             raise e # Raise to trigger retry
 
+    # ========== 基本面数据获取方法 ==========
+    
+    def get_financial_indicator(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取股票财务指标数据
+        
+        数据来源：ak.stock_financial_analysis_indicator()
+        
+        包含指标：
+        - 净资产收益率(ROE)
+        - 总资产收益率(ROA)
+        - 销售净利率
+        - 每股收益(EPS)
+        - 每股净资产
+        - 每股经营现金流
+        - 市盈率(PE)
+        - 市净率(PB)
+        等财务指标
+        
+        Args:
+            stock_code: 股票代码，如 '600519'
+            
+        Returns:
+            财务指标 DataFrame，包含多期数据，失败返回 None
+        """
+        import akshare as ak
+        
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info(f"[API调用] ak.stock_financial_analysis_indicator(symbol={stock_code})")
+            
+            # 调用 akshare API 获取财务分析指标
+            df = ak.stock_financial_analysis_indicator(symbol=stock_code)
+            
+            if df is not None and not df.empty:
+                logger.info(f"[API返回] 财务指标获取成功，共 {len(df)} 期数据")
+                logger.debug(f"[API返回] 列名: {list(df.columns)}")
+                return df
+            else:
+                logger.warning(f"[API返回] 财务指标数据为空: {stock_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[Akshare] 获取财务指标失败 [{stock_code}]: {e}")
+            return None
+    
+    def get_balance_sheet(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取资产负债表数据
+        
+        数据来源：ak.stock_balance_sheet_by_report_em()
+        
+        Args:
+            stock_code: 股票代码，如 '600519'
+            
+        Returns:
+            资产负债表 DataFrame，失败返回 None
+        """
+        import akshare as ak
+        
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info(f"[API调用] ak.stock_balance_sheet_by_report_em(symbol={stock_code})")
+            
+            # 调用 akshare API 获取资产负债表
+            df = ak.stock_balance_sheet_by_report_em(symbol=stock_code)
+            
+            if df is not None and not df.empty:
+                logger.info(f"[API返回] 资产负债表获取成功，共 {len(df)} 期数据")
+                return df
+            else:
+                logger.warning(f"[API返回] 资产负债表数据为空: {stock_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[Akshare] 获取资产负债表失败 [{stock_code}]: {e}")
+            return None
+    
+    def get_income_statement(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取利润表数据
+        
+        数据来源：ak.stock_profit_sheet_by_report_em()
+        
+        Args:
+            stock_code: 股票代码，如 '600519'
+            
+        Returns:
+            利润表 DataFrame，失败返回 None
+        """
+        import akshare as ak
+        
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info(f"[API调用] ak.stock_profit_sheet_by_report_em(symbol={stock_code})")
+            
+            # 调用 akshare API 获取利润表
+            df = ak.stock_profit_sheet_by_report_em(symbol=stock_code)
+            
+            if df is not None and not df.empty:
+                logger.info(f"[API返回] 利润表获取成功，共 {len(df)} 期数据")
+                return df
+            else:
+                logger.warning(f"[API返回] 利润表数据为空: {stock_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[Akshare] 获取利润表失败 [{stock_code}]: {e}")
+            return None
+
 
 if __name__ == "__main__":
     # 测试代码

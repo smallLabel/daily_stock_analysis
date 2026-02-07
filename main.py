@@ -411,7 +411,7 @@ def main() -> int:
                 dark=True,
                 host=config.webui_host,
                 port=config.webui_port,
-                show=False,  # 不自动打开浏览器
+                show=True,  # 自动打开浏览器
                 reload=False, # 禁用自动重载，避免多进程问题
                 uvicorn_logging_level='info'
             )

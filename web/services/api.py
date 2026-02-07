@@ -339,7 +339,7 @@ class ApiEndpoints:
             result = self.pipeline.process_single_stock(
                 code=code,
                 skip_analysis=False,
-                single_stock_notify=False,  # WebUI不需要推送通知
+                single_stock_notify=self.pipeline.config.single_stock_notify,  # 根据配置决定是否推送
                 report_type=report_enum,
                 progress_callback=progress_callback
             )

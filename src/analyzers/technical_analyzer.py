@@ -4,12 +4,6 @@
 趋势交易分析器 - 基于用户交易理念
 ===================================
 
-⚠️ 此文件已被弃用！
-请使用 src.analyzers.technical_analyzer 模块。
-为保持向后兼容，此文件将重定向到新模块。
-
-新模块路径：src/analyzers/technical_analyzer.py
-
 交易理念核心原则：
 1. 严进策略 - 不追高，追求每笔交易成功率
 2. 趋势交易 - MA5>MA10>MA20 多头排列，顺势而为
@@ -21,38 +15,6 @@
 - 乖离率：(Close - MA5) / MA5 < 5%（不追高）
 - 量能形态：缩量回调优先
 """
-
-import warnings
-
-# 发出弃用警告
-warnings.warn(
-    "stock_analyzer 模块已弃用，请使用 src.analyzers.technical_analyzer",
-    DeprecationWarning,
-    stacklevel=2
-)
-
-# 重定向导入到新模块
-from src.analyzers.technical_analyzer import (
-    TrendStatus,
-    VolumeStatus,
-    BuySignal,
-    MACDStatus,
-    RSIStatus,
-    TrendAnalysisResult,
-    StockTrendAnalyzer,
-    analyze_stock,
-)
-
-__all__ = [
-    'TrendStatus',
-    'VolumeStatus',
-    'BuySignal',
-    'MACDStatus',
-    'RSIStatus',
-    'TrendAnalysisResult',
-    'StockTrendAnalyzer',
-    'analyze_stock',
-]
 
 import logging
 from dataclasses import dataclass, field

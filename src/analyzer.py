@@ -199,7 +199,11 @@ class AnalysisResult:
     search_performed: bool = False  # 是否执行了联网搜索
     data_sources: str = ""  # 数据来源说明
     success: bool = True
+
     error_message: Optional[str] = None
+    
+    # ========== 资金流向 ==========
+    capital_flow: Optional[Dict[str, Any]] = None  # 资金流向数据
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -232,6 +236,7 @@ class AnalysisResult:
             'search_performed': self.search_performed,
             'success': self.success,
             'error_message': self.error_message,
+            'capital_flow': self.capital_flow,
         }
     
     def get_core_conclusion(self) -> str:
@@ -897,6 +902,7 @@ class GeminiAnalyzer:
             result = self._parse_response(response_text, code, name)
             result.raw_response = response_text
             result.search_performed = bool(news_context)
+            result.capital_flow = context.get('capital')
             
             logger.info(f"[LLM解析] {name}({code}) 分析完成: {result.trend_prediction}, 评分 {result.sentiment_score}")
             
@@ -1023,6 +1029,7 @@ class GeminiAnalyzer:
 | 乖离率(MA10) | {trend.get('bias_ma10', 0):+.2f}% | |
 | 量能状态 | {trend.get('volume_status', '未知')} | {trend.get('volume_trend', '')} |
 | 系统信号 | {trend.get('buy_signal', '未知')} | |
+| 系统信号 | {trend.get('buy_signal', '未知')} | |
 | 系统评分 | {trend.get('signal_score', 0)}/100 | |
 
 #### 系统分析理由
@@ -1031,6 +1038,29 @@ class GeminiAnalyzer:
 
 **风险因素**：
 {chr(10).join('- ' + r for r in trend.get('risk_factors', ['无'])) if trend.get('risk_factors') else '- 无'}
+"""
+
+        # 添加资金流向信息
+        if 'capital' in context:
+            cap = context['capital']
+            status = cap.get('capital_status', '未知')
+            trend_desc = cap.get('flow_trend', '无明显趋势')
+            
+            prompt += f"""
+### 💰 资金流向分析
+| 指标 | 数值 | 判定 |
+|------|------|------|
+| **主力状态** | **{status}** | |
+| 资金趋势 | {trend_desc} | |
+| 今日主力净流入 | {cap.get('main_net_inflow_today', 0):.2f} 万元 | |
+| 3日主力净流入 | {cap.get('main_net_inflow_3d', 0):.2f} 万元 | |
+| 5日主力净流入 | {cap.get('main_net_inflow_5d', 0):.2f} 万元 | |
+| 连续流入天数 | {cap.get('consecutive_inflow_days', 0)} 天 | |
+
+**资金面解读建议**：
+- 关注主力资金是否持续流入（聪明钱动向）
+- 结合股价走势，主力流入+股价上涨为最佳
+- 主力流出+股价上涨需警惕诱多
 """
         
         # 添加昨日对比数据

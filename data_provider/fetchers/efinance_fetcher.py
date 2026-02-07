@@ -44,7 +44,7 @@ class EfinanceFetcher(BaseFetcher):
     """
 
     name = "EfinanceFetcher"
-    priority = 0  # 最高优先级
+    priority = 2
 
     def __init__(self):
         """
@@ -250,9 +250,91 @@ class EfinanceFetcher(BaseFetcher):
 
         # 按日期升序排列
         if 'date' in df.columns:
-            df = df.sort_values('date')
+            df = df.sort_values(by=['date'])
 
         return df
+
+    def get_history_money_flow(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取历史资金流向数据 (日频)
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            DataFrame 包含：日期, 收盘价, 涨跌幅, 主力净流入, 超大单净流入, 大单净流入, 中单净流入, 小单净流入
+        """
+        try:
+            import efinance as ef
+            # self._check_rate_limit() # efinance 内部有 requests
+            
+            # efinance usage: ef.stock.get_history_bill(code)
+            # code format: just the number is usually enough for efinance
+            # e.g. '600519'
+            
+            # Remove suffix for efinance
+            code = stock_code.split('.')[0]
+            
+            df = ef.stock.get_history_bill(code)
+            
+            if df is not None and not df.empty:
+                # Rename columns to standard English names
+                # Original columns usually: 股票名称, 股票代码, 日期, 收盘价, 涨跌幅, 主力净流入, ...
+                column_mapping = {
+                    '日期': 'date',
+                    '收盘价': 'close',
+                    '涨跌幅': 'pct_chg',
+                    '主力净流入': 'main_net_inflow',
+                    '超大单净流入': 'super_large_net_inflow',
+                    '大单净流入': 'large_net_inflow',
+                    '中单净流入': 'medium_net_inflow',
+                    '小单净流入': 'small_net_inflow',
+                    '主力净流入占比': 'main_net_inflow_pct',
+                    '超大单净流入占比': 'super_large_net_inflow_pct',
+                    '大单净流入占比': 'large_net_inflow_pct',
+                    '中单净流入占比': 'medium_net_inflow_pct',
+                    '小单净流入占比': 'small_net_inflow_pct',
+                }
+                
+                df = df.rename(columns=column_mapping)
+                
+                # Convert numeric columns
+                numeric_cols = [
+                    'close', 'pct_chg', 
+                    'main_net_inflow', 'super_large_net_inflow', 'large_net_inflow', 
+                    'medium_net_inflow', 'small_net_inflow',
+                    'main_net_inflow_pct', 'super_large_net_inflow_pct', 'large_net_inflow_pct',
+                    'medium_net_inflow_pct', 'small_net_inflow_pct'
+                ]
+                
+                for col in numeric_cols:
+                    if col in df.columns:
+                        # efinance might return strings like '-' or empty
+                        # Remove potentially existing comma
+                        if df[col].dtype == object:
+                             df[col] = df[col].astype(str).str.replace(',', '')
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # Standardize date format if necessary (efinance usually returns 'YYYY-MM-DD')
+                if 'date' in df.columns:
+                    df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                    
+                # Filter to standard columns + extra money flow columns
+                keep_cols = ['date'] + [col for col in numeric_cols if col in df.columns]
+                # Ensure date is available
+                if 'date' not in df.columns:
+                     return None
+                     
+                df = df[[c for c in keep_cols if c in df.columns]]
+                
+                logger.debug(f"[{self.name}] 获取历史资金流向成功: {len(df)} 条")
+                return df
+            
+        except Exception as e:
+            logger.warning(f"[{self.name}] 获取历史资金流向失败 {stock_code}: {e}")
+        
+        return None
+
 
     def get_stock_name(self, stock_code: str) -> Optional[str]:
         """

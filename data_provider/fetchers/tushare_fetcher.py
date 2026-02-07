@@ -128,8 +128,8 @@ class TushareFetcher(BaseFetcher):
 
         if config.tushare_token and self._api is not None:
             # Token 配置且 API 初始化成功，提升为最高优先级
-            logger.info("✅ 检测到 TUSHARE_TOKEN 且 API 初始化成功，Tushare 数据源优先级提升为最高 (Priority -1)")
-            return -1
+            logger.info("✅ 检测到 TUSHARE_TOKEN 且 API 初始化成功，但根据配置 Baostock 为首选，Tushare 设置为 (Priority 3)")
+            return 3
 
         # Token 未配置或 API 初始化失败，保持默认优先级
         return 2

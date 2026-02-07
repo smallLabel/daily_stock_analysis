@@ -199,6 +199,16 @@ def index_page():
             if (text === null || text === undefined) return '';
             return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         };
+        
+        const formatAmount = (val) => {
+            if (val === undefined || val === null) return '0';
+            const num = parseFloat(val);
+            if (isNaN(num)) return '0';
+            const absVal = Math.abs(num);
+            if (absVal >= 100000000) return (num / 100000000).toFixed(2) + '亿';
+            if (absVal >= 10000) return (num / 10000).toFixed(2) + '万';
+            return num.toFixed(0);
+        };
 
         try {
             currentAnalysisData = data;
@@ -222,6 +232,11 @@ def index_page():
         
         const chipColors = { '健康': 'text-[#52c41a]', '警惕': 'text-[#faad14]', '风险': 'text-[#ff4d4f]' };
         const chipColor = chipColors[d.data_perspective.chip_structure.chip_health] || 'text-[#ffffff73]';
+
+        const cap = data.capital_flow || {};
+        const capStatus = cap.capital_status || '未知';
+        const capColors = { '主力大幅流入': 'text-[#ff4d4f]', '主力小幅流入': 'text-[#ff4d4f]', '主力小幅流出': 'text-[#52c41a]', '主力大幅流出': 'text-[#52c41a]', '中性': 'text-[#ffffff73]' };
+        const capColor = capColors[capStatus] || 'text-[#ffffff73]';
         
         const priceDiff = d.data_perspective.price_position.current_price - d.data_perspective.price_position.ma5;
         const diffColor = priceDiff > 0 ? 'text-[#ff4d4f]' : 'text-[#52c41a]';
@@ -353,6 +368,17 @@ def index_page():
                             <div class="space-y-1">
                                 <span class="text-[12px] text-[#ffffff73] block">获利盘: <span class="text-[#ffffffd9]">${d.data_perspective.chip_structure.profit_ratio.toFixed(0)}%</span> | 集中度: <span class="text-[#ffffffd9]">${d.data_perspective.chip_structure.concentration.toFixed(1)}</span></span>
                                 <span class="text-[12px] text-[#ffffff73] block">平均成本: <span class="text-[#ffffffd9] font-mono">¥${d.data_perspective.chip_structure.avg_cost.toFixed(1)}</span></span>
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-[#262626] rounded-lg border border-[#303030] col-span-2 sm:col-span-1">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[14px] font-medium text-[#ffffffd9]">💸 资金流向</span>
+                                <span class="text-[12px] ${capColor}">${safe(capStatus)}</span>
+                            </div>
+                            <div class="space-y-1">
+                                <span class="text-[12px] text-[#ffffff73] block">今日主力: <span class="text-[#ffffffd9] font-mono">${formatAmount(cap.main_net_inflow_today)}</span></span>
+                                <span class="text-[12px] text-[#ffffff73] block">5日主力: <span class="text-[#ffffffd9] font-mono">${formatAmount(cap.main_net_inflow_5d)}</span> | 连红: <span class="text-[#ffffffd9]">${cap.consecutive_inflow_days || 0}天</span></span>
                             </div>
                         </div>
                     </div>
@@ -527,15 +553,29 @@ def index_page():
                     ui.label(label).classes(f'text-sm font-medium {text_class}')
     
     # Main Content
-    with ui.column().classes('w-full h-[calc(100vh-60px)] px-4 pb-4 pt-2.5 gap-2 overflow-auto'):
+    with ui.column().classes('w-full h-[calc(100vh-100px)] px-4 pb-4 pt-2.5 gap-2 overflow-auto'):
         # 1. Stock Analysis Input Section
-        with ui.row().classes('w-full items-center gap-4 mb-0 shrink-0 bg-[#18181B] p-4 rounded-xl border border-[#27272A]'):
-            with ui.column().classes('gap-0.5'):
-                ui.label('个股分析').classes('text-lg font-bold text-white')
-                ui.label('深度AI研报生成').classes('text-zinc-500 text-xs')
+        # 1. Stock Analysis Input Section
+        with ui.row().classes('w-full items-center justify-between mb-0 shrink-0 bg-[#18181B] p-4 rounded-xl border border-[#27272A] shadow-sm'):
+            # Left: Title Area with Icon
+            with ui.row().classes('items-center gap-3'):
+                with ui.element('div').classes('flex items-center justify-center w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20'):
+                    ui.icon('show_chart', size='20px').classes('text-blue-500')
+                with ui.column().classes('gap-0'):
+                    ui.label('市场扫描').classes('text-[16px] font-bold text-gray-100 tracking-tight leading-tight')
+                    ui.label('AI 深度研报生成').classes('text-zinc-500 text-[12px] leading-tight')
             
-            with ui.row().classes('flex-grow items-center gap-3 ml-4'):
-                code_input = ui.input(placeholder='输入代码 (如: 600519)').classes('flex-grow').props('outlined dense dark color=blue-6').style('background-color: transparent;')
+            # Right: Input Control Group
+            with ui.row().classes('items-center gap-3'):
+                # Stock Code Input - Compact & Styled
+                code_input = ui.input(placeholder='股票代码 (如 600519)').props(
+                    'outlined dense dark color=blue-6 rounded input-class="text-center"'
+                ).classes(
+                    'w-64 transition-all focus-within:w-72 font-mono tracking-wider bg-transparent'
+                )
+                
+                with code_input.add_slot('prepend'):
+                    ui.icon('search', size='xs').classes('text-zinc-500')
                 
                 async def analyze_stock():
                     code = code_input.value
@@ -546,7 +586,10 @@ def index_page():
                 
                 code_input.on('keydown.enter', analyze_stock)
                 
-                ui.button('开始分析', icon='auto_awesome').classes('bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-md shadow-sm transition-colors analyze-btn').on_click(analyze_stock)
+                # Action Button
+                ui.button('开始分析', icon='auto_awesome').classes(
+                    'bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-5 py-1.5 rounded-lg shadow-sm border border-blue-500/20 transition-all active:scale-95'
+                ).on_click(analyze_stock)
         
         # 2. Analysis Result Modal (Popup)
         # Use a fixed overlay that covers the screen
@@ -599,7 +642,7 @@ def index_page():
         with table_container:
             with table_content:
                 with ui.element('table').classes('w-full text-left text-sm border-collapse'):
-                    with ui.element('thead').classes('bg-[#27272A] text-xs uppercase text-zinc-500 sticky top-0 z-10 font-medium tracking-wider'):
+                    with ui.element('thead').classes('bg-[#27272A] text-sm uppercase text-zinc-500 sticky top-0 z-10 font-medium tracking-wider'):
                         with ui.element('tr'):
                             with ui.element('th').classes('px-4 py-3 font-semibold'):
                                 ui.label('代码')

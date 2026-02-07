@@ -44,12 +44,12 @@ class DataFetcherManager:
         优先级动态调整逻辑：
         - 如果配置了 TUSHARE_TOKEN：Tushare 优先级提升为 0（最高）
         - 否则按默认优先级：
-          0. EfinanceFetcher (Priority 0) - 最高优先级
+          0. BaostockFetcher (Priority 0) - 最高优先级
           1. AkshareFetcher (Priority 1)
-          2. PytdxFetcher (Priority 2) - 通达信
-          2. TushareFetcher (Priority 2)
-          3. BaostockFetcher (Priority 3)
-          4. YfinanceFetcher (Priority 4)
+          2. EfinanceFetcher (Priority 2)
+          3. PytdxFetcher (Priority 3) - 通达信
+          4. TushareFetcher (Priority 4)
+          5. YfinanceFetcher (Priority 5)
         """
         from ..fetchers.efinance_fetcher import EfinanceFetcher
         from ..fetchers.akshare_fetcher import AkshareFetcher

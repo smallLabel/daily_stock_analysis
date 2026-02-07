@@ -14,7 +14,7 @@ A股自选股智能分析系统 - 核心分析流水线
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Tuple
 
 from src.config import get_config, Config
@@ -26,6 +26,8 @@ from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
+from src.analyzers.fundamental_analyzer import FundamentalAnalyzer
+from src.analyzers.capital_analyzer import CapitalAnalyzer, CapitalAnalysisResult
 from bot.models import BotMessage
 
 
@@ -64,6 +66,8 @@ class StockAnalysisPipeline:
         self.fetcher_manager = DataFetcherManager()
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 趋势分析器
+        self.fundamental_analyzer = FundamentalAnalyzer(config)  # 基本面分析器
+        self.capital_analyzer = CapitalAnalyzer()  # 资金面分析器
         self.analyzer = GeminiAnalyzer()
         self.notifier = NotificationService(source_message=source_message)
         
@@ -85,10 +89,22 @@ class StockAnalysisPipeline:
             logger.info("筹码分布分析已启用")
         else:
             logger.info("筹码分布分析已禁用")
+
+        
+        # 打印资金流向分析状态
+        now = datetime.now()
+        is_trading_time = (getattr(now, 'hour', 0) == 9 and getattr(now, 'minute', 0) >= 30) or \
+                          (getattr(now, 'hour', 0) > 9 and getattr(now, 'hour', 0) < 15)
+        
+        if not is_trading_time:
+             logger.info("资金流向分析已启用 (当前为非交易时间)")
+        else:
+             logger.info("资金流向分析已暂停 (当前为交易时间)")
+
         if self.search_service.is_available:
             logger.info("搜索服务已启用 (Tavily/SerpAPI)")
         else:
-            logger.warning("搜索服务未启用（未配置 API Key）")
+            logger.warning("搜索服务未启用（未配置 API Key)")
         
         # 进度回调
         self.progress_callback = None
@@ -254,6 +270,42 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"[{code}] 趋势分析失败: {e}")
             
+            # Step 3.5: 基本面分析（财务指标）
+            fundamental_data = None
+            if self.config.enable_fundamental_analysis:
+                if callback:
+                    callback("基本面分析", 50, "正在分析财务指标...")
+                
+                try:
+                    fundamental_data = self.fundamental_analyzer.analyze_financial_health(code)
+                    if fundamental_data and fundamental_data.get('available'):
+                        logger.info(f"[{code}] 基本面分析完成")
+                    else:
+                        logger.warning(f"[{code}] 基本面分析不可用: {fundamental_data.get('error', '未知错误')}")
+                except Exception as e:
+                    logger.warning(f"[{code}] 基本面分析失败: {e}")
+            
+            # Step 3.6: 资金流向分析 (仅非交易时间)
+            capital_data = None
+            now = datetime.now()
+            # 简单判断：9:30-15:00 为交易时间
+            # 严格来说应该判断 工作日 + 假期，但这里主要为了避免盘中获取不完整数据
+            # 逻辑：早于 9:30 或 晚于 15:00
+            current_time_val = now.hour * 100 + now.minute
+            is_trading_time = 930 <= current_time_val < 1500
+            
+            if not is_trading_time:
+                if callback:
+                    callback("资金分析", 55, "正在分析资金流向...")
+                try:
+                    capital_data = self.capital_analyzer.analyze(code)
+                    if capital_data:
+                         logger.info(f"[{code}] 资金流向: {capital_data.capital_status}")
+                except Exception as e:
+                    logger.warning(f"[{code}] 资金流向分析失败: {e}")
+            else:
+                 logger.debug(f"[{code}] 交易时间跳过资金流向分析")
+
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             if callback:
                 callback("资讯查询", 60, "正在搜索最新资讯、公告和舆情信息...")
@@ -295,12 +347,14 @@ class StockAnalysisPipeline:
                     'yesterday': {}
                 }
             
-            # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
+            # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、基本面数据、股票名称）
             enhanced_context = self._enhance_context(
                 context, 
                 realtime_quote, 
                 chip_data, 
                 trend_result,
+                fundamental_data,  # 添加基本面数据
+                capital_data,      # 添加资金流向数据
                 stock_name  # 传入股票名称
             )
             
@@ -326,18 +380,21 @@ class StockAnalysisPipeline:
         realtime_quote,
         chip_data: Optional[ChipDistribution],
         trend_result: Optional[TrendAnalysisResult],
+        fundamental_data: Optional[Dict[str, Any]] = None,
+        capital_data: Optional[CapitalAnalysisResult] = None,
         stock_name: str = ""
     ) -> Dict[str, Any]:
         """
         增强分析上下文
         
-        将实时行情、筹码分布、趋势分析结果、股票名称添加到上下文中
+        将实时行情、筹码分布、趋势分析结果、基本面数据、股票名称添加到上下文中
         
         Args:
             context: 原始上下文
             realtime_quote: 实时行情数据（UnifiedRealtimeQuote 或 None）
             chip_data: 筹码分布数据
             trend_result: 趋势分析结果
+            fundamental_data: 基本面分析结果
             stock_name: 股票名称
             
         Returns:
@@ -397,6 +454,20 @@ class StockAnalysisPipeline:
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
             }
+        
+        # 添加基本面分析结果
+        if fundamental_data and fundamental_data.get('available'):
+            enhanced['fundamental'] = {
+                'profitability': fundamental_data.get('profitability', {}),
+                'growth': fundamental_data.get('growth', {}),
+                'valuation': fundamental_data.get('valuation', {}),
+                'safety': fundamental_data.get('safety', {}),
+                'analyzed_at': fundamental_data.get('analyzed_at', '')
+            }
+        
+        # 添加资金流向数据
+        if capital_data:
+            enhanced['capital'] = capital_data.to_dict()
         
         return enhanced
     
