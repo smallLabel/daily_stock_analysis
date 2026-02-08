@@ -34,13 +34,13 @@ bandit -r src/ --exclude-dir=tests
 pytest -v --tb=short
 
 # Run single test file
-pytest tests/test_imports.py -v --tb=short
+pytest tests/test_portfolio.py -v --tb=short
 
 # Run single test function
-pytest tests/test_imports.py::test_specific_function -v --tb=short
+pytest tests/test_portfolio.py::test_portfolio -v --tb=short
 
-# Import verification (manual)
-python test_imports.py
+# Run test script directly (for scripts in tests/ directory)
+python tests/test_portfolio.py
 ```
 
 ### Docker
@@ -58,12 +58,29 @@ docker run --rm stock-analysis:test python -c "print('OK')"
 - Maximum line length: **120 characters**
 - Python 3.10+ required
 
+### File Headers
+Include encoding and module docstring:
+```python
+# -*- coding: utf-8 -*-
+"""
+===================================
+Module Name - Brief Description
+===================================
+
+职责：
+1. 第一个职责
+2. 第二个职责
+"""
+
+import os
+from typing import Any
+```
+
 ### Imports
 - Standard library first, then third-party, then local
 - Use absolute imports: `from src.config import Config`
 - Separate import groups with blank lines
 - Sort within groups using isort with Black profile
-
 ```python
 # Standard library
 import json
@@ -85,9 +102,8 @@ from src.enums import ReportType
 ### Types
 - Use type hints for function parameters and return values
 - Prefer `typing.Dict`, `typing.List`, `typing.Optional` over `dict`, `list`
-- Use dataclasses for structured data (config, models, DTOs)
+- Use dataclasses with `field(default_factory=list)` for list configs
 - Use StrEnum for string-based enums
-
 ```python
 from dataclasses import dataclass
 from typing import Optional
@@ -110,12 +126,11 @@ class StockConfig:
 - **Constants**: UPPER_SNAKE_CASE (`MAX_RETRIES`, `API_DELAY`)
 - **Private members**: Leading underscore (`_private_method`, `_cache`)
 
-### Error Handling
-- Use `try/except` with specific exception types
-- Log errors with `logger.error()` (not print)
-- Propagate exceptions for caller to handle
+### Error Handling & Logging
+- Use `try/except` with specific exception types; propagate for caller to handle
+- Always log errors with `logger.error()` - never use `print()` for errors
+- Use `logger = logging.getLogger(__name__)` at module level
 - Use tenacity for API retries with exponential backoff
-
 ```python
 from tenacity import retry, wait_exponential, stop_after_attempt
 
@@ -128,30 +143,6 @@ def fetch_data(self, symbol: str) -> Dict:
     except requests.RequestException as e:
         logger.error(f"Failed to fetch {symbol}: {e}")
         raise
-```
-
-### Logging
-- Use `logger = logging.getLogger(__name__)`
-- Log levels: DEBUG (details), INFO (progress), WARNING (issues), ERROR (failures)
-- Never commit code with `print()` statements (use logging instead)
-
-### File Headers
-Include encoding and module docstring:
-
-```python
-# -*- coding: utf-8 -*-
-"""
-===================================
-Module Name - Brief Description
-===================================
-
-Responsibilities:
-1. First responsibility
-2. Second responsibility
-"""
-
-import os
-from typing import Any
 ```
 
 ### Module Structure

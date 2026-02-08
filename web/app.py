@@ -59,6 +59,38 @@ def index_page():
     
     # Add page-specific CSS
     ui.add_css('''
+        /* Global Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3f3f46; /* zinc-700 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #52525b; /* zinc-600 */
+        }
+        
+        /* Custom Scrollbar Utility for modal content */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background-color: rgba(255, 255, 255, 0.25);
+        }
+
         .q-page-container {
             padding-top: 0px !important;
         }
@@ -440,6 +472,21 @@ def index_page():
     
     let retryCode = null;
     
+    let currentAbortController = null;
+    
+    function cancelAnalysis() {
+        if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+            setAnalyzingState(false);
+            if (typeof stopProgressPolling === 'function') {
+                stopProgressPolling();
+            }
+            Quasar.Notify.create({ message: '分析已取消', type: 'info', position: 'top' });
+        }
+        hideAnalysisResult();
+    }
+
     async function submitStockAnalysis(code) {
         if (!validateStockCode(code)) {
             return;
@@ -457,6 +504,10 @@ def index_page():
             
             setAnalyzingState(true);
             
+            // Create new AbortController for this request
+            currentAbortController = new AbortController();
+            const signal = currentAbortController.signal;
+            
             // 使用新的进度追踪UI
             if (typeof showLoadingStateWithProgress === 'function') {
                 showLoadingStateWithProgress(code);
@@ -466,30 +517,41 @@ def index_page():
             
             const apiReportType = 'full';
             
-            const response = await fetch('/api/analyze?code=' + encodeURIComponent(code) + '&report_type=' + encodeURIComponent(apiReportType));
-            const data = await response.json();
-            
-            console.log('分析响应:', data); // 调试日志
-            
-            if (data.success && data.result) {
-                // 确保模态框显示并渲染结果
-                const overlay = document.getElementById('analysis-overlay');
-                if (overlay) {
-                    overlay.classList.remove('hidden'); // Remove Tailwind hidden class
-                    overlay.style.display = 'flex';
+            try {
+                const response = await fetch('/api/analyze?code=' + encodeURIComponent(code) + '&report_type=' + encodeURIComponent(apiReportType), {
+                    signal: signal
+                });
+                const data = await response.json();
+                
+                console.log('分析响应:', data); // 调试日志
+                
+                if (data.success && data.result) {
+                    // 确保模态框显示并渲染结果
+                    const overlay = document.getElementById('analysis-overlay');
+                    if (overlay) {
+                        overlay.classList.remove('hidden'); // Remove Tailwind hidden class
+                        overlay.style.display = 'flex';
+                    }
+                    renderAnalysisCard(data.result);
+                    window.dispatchEvent(new Event('historyUpdated'));
+                    Quasar.Notify.create({ message: '✅ 分析完成！', type: 'positive', position: 'top-right' });
+                } else {
+                    showErrorState(data.error || '分析失败，请检查股票代码是否正确', code);
+                    Quasar.Notify.create({ message: '❌ ' + (data.error || '分析失败'), type: 'negative', position: 'top-right' });
                 }
-                renderAnalysisCard(data.result);
-                window.dispatchEvent(new Event('historyUpdated'));
-                Quasar.Notify.create({ message: '✅ 分析完成！', type: 'positive', position: 'top-right' });
-            } else {
-                showErrorState(data.error || '分析失败，请检查股票代码是否正确', code);
-                Quasar.Notify.create({ message: '❌ ' + (data.error || '分析失败'), type: 'negative', position: 'top-right' });
+            } catch (fetchError) {
+                if (fetchError.name === 'AbortError') {
+                    console.log('Analysis request aborted by user');
+                    return; // Normal abort, do nothing
+                }
+                throw fetchError;
             }
         } catch (error) {
             console.error('分析请求失败:', error);
             showErrorState('网络请求失败: ' + error.message, retryCode);
             Quasar.Notify.create({ message: '❌ 请求失败: ' + error.message, type: 'negative', position: 'top-right' });
         } finally {
+            currentAbortController = null;
             setAnalyzingState(false);
             // 停止进度轮询
             if (typeof stopProgressPolling === 'function') {
@@ -612,7 +674,7 @@ def index_page():
                     
                     # Close X Button
                     ui.button(icon='close').props('flat round dense size=sm').classes('text-[#ffffff73] hover:text-[#ffffffd9]').on_click(
-                        lambda: ui.run_javascript('hideAnalysisResult()')
+                        lambda: ui.run_javascript('cancelAnalysis()')
                     )
 
                 # Modal Content (Scrollable)
@@ -624,7 +686,7 @@ def index_page():
                 # Modal Footer
                 with ui.row().classes('w-full items-center justify-end px-4 py-3 border-t border-[#303030] bg-[#1f1f1f] shrink-0 gap-2'):
                     ui.button('关闭').props('outline').classes('text-[#ffffffd9] border-[#434343] hover:text-[#40a9ff] hover:border-[#40a9ff] px-4 rounded-[4px]').on_click(
-                        lambda: ui.run_javascript('hideAnalysisResult()')
+                        lambda: ui.run_javascript('cancelAnalysis()')
                     )
                     ui.button('重新分析', icon='refresh').classes('bg-[#177ddc] text-white hover:bg-[#1890ff] px-4 rounded-[4px] shadow-none border-none').on_click(
                         lambda: ui.run_javascript('retryAnalysis(currentStockCode)')

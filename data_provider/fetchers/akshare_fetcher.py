@@ -32,6 +32,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 
 import pandas as pd
+
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -1458,6 +1459,56 @@ class AkshareFetcher(BaseFetcher):
 
         except Exception as e:
             logger.error(f"[Akshare] 获取板块排行失败: {e}")
+            return None
+
+    def fetch_ticket_list(self) -> Optional[pd.DataFrame]:
+        """
+        获取全市场股票列表 (仅获取数据，不保存)
+        
+        Returns:
+            pd.DataFrame: 包含 code, name 列
+        """
+        import akshare as ak
+        import pandas as pd # Ensure pandas is available locally if strictly scoped
+        
+        try:
+            # 1. 配置代理 (如果环境变量中有配置)
+            # Akshare 底层使用 requests，requests 会自动读取 HTTP_PROXY/HTTPS_PROXY
+            # 这里我们手动检查并设置，以防 .env 虽然加载了但 requests 没读到（尽管通常会自动读取）
+            if os.getenv('USE_PROXY', 'false').lower() == 'true':
+                proxy_host = os.getenv('PROXY_HOST', '127.0.0.1')
+                proxy_port = os.getenv('PROXY_PORT', '7890')
+                proxy_url = f"http://{proxy_host}:{proxy_port}"
+                os.environ['HTTP_PROXY'] = proxy_url
+                os.environ['HTTPS_PROXY'] = proxy_url
+                logger.info(f"Akshare using proxy: {proxy_url}")
+            
+            # 2. 获取全量数据
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info("正在获取全市场股票列表 (ak.stock_zh_a_spot_em)...")
+            df = ak.stock_zh_a_spot_em()
+            
+            if df is None or df.empty:
+                logger.warning("获取全市场股票列表失败: 返回为空")
+                return None
+
+            logger.info(f"成功获取股票列表，列名: {df.columns.tolist()}, 前5行: {df.head().to_dict()}")
+
+            # 2. 数据清洗
+            if '代码' not in df.columns or '名称' not in df.columns:
+                logger.error(f"数据列名不匹配: {df.columns.tolist()}")
+                return None
+                
+            df_ret = df[['代码', '名称']].rename(columns={'代码': 'code', '名称': 'name'})
+            df_ret['code'] = df_ret['code'].astype(str)
+            df_ret['name'] = df_ret['name'].astype(str)
+            
+            return df_ret
+
+        except Exception as e:
+            logger.error(f"获取全市场股票列表失败: {e}", exc_info=True)
             return None
 
     def search_board(self, keyword: str) -> List[Dict[str, Any]]:

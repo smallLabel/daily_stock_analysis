@@ -293,8 +293,11 @@ class StockAnalysisPipeline:
             # 逻辑：早于 9:30 或 晚于 15:00
             current_time_val = now.hour * 100 + now.minute
             is_trading_time = 930 <= current_time_val < 1500
+            is_weekend = now.weekday() >= 5  # 5=周六, 6=周日
             
-            if not is_trading_time:
+            # 如果是非交易时间（收盘后/开盘前）或者 非交易日（周末），执行资金分析
+            # 目的：非交易日即使在 9:30-15:00 也可以分析（获取的是上一交易日数据）
+            if (not is_trading_time) or is_weekend:
                 if callback:
                     callback("资金分析", 55, "正在分析资金流向...")
                 try:
