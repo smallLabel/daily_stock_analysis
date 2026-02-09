@@ -73,15 +73,8 @@ class StockDataService:
                 logger.warning("Fetched empty stock list.")
                 return
 
-            # Convert DataFrame to list of tuples for Repo
-            # Repo expects: (code, name, updated_at)
-            now = datetime.now()
-            stocks_to_save = [
-                (row['code'], row['name'], now) 
-                for _, row in df.iterrows()
-            ]
-            
-            self.repo.save_all(stocks_to_save)
+            # Save DataFrame directly to Repo
+            self.repo.save_all(df)
             
         except Exception as e:
             logger.error(f"Failed to update stock market data: {e}", exc_info=True)

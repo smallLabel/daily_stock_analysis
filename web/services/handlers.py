@@ -503,7 +503,7 @@ class ApiHandler:
             
             return JsonResponse({
                 "success": True,
-                "data": [s.to_dict() for s in stocks],
+                "data": stocks,  # 已经是字典列表
                 "count": len(stocks)
             })
         except Exception as e:
@@ -546,7 +546,7 @@ class ApiHandler:
             
             # 检查是否已存在
             existing_stocks = db.get_watchlist_stocks()
-            existing_codes = set(s.stock_code for s in existing_stocks)
+            existing_codes = set(s['stock_code'] for s in existing_stocks)
             
             if stock_code in existing_codes:
                 return JsonResponse({
@@ -700,7 +700,7 @@ class ApiHandler:
             
             # 获取已存在的股票
             existing_stocks = db.get_watchlist_stocks()
-            existing_codes = set(s.stock_code for s in existing_stocks)
+            existing_codes = set(s['stock_code'] for s in existing_stocks)
             
             # 过滤出需要新增的股票（去重）
             new_codes = [code for code in stock_codes if code not in existing_codes]

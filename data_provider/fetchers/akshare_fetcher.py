@@ -1461,15 +1461,130 @@ class AkshareFetcher(BaseFetcher):
             logger.error(f"[Akshare] 获取板块排行失败: {e}")
             return None
 
+    async def get_stock_latest_daily(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取单只股票的最新日线数据（作为全市场快照失败的 fallback）
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            包含 date, open, close, high, low, volume, amount, pct_chg 的字典
+        """
+        import akshare as ak
+        from datetime import datetime, timedelta
+        
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            end_date = datetime.now().strftime("%Y%m%d")
+            start_date = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d") # Look back 10 days to be safe
+            
+            # 使用 stock_zh_a_hist 获取最新数据
+            df = ak.stock_zh_a_hist(symbol=stock_code, period="daily", start_date=start_date, end_date=end_date, adjust="qfq")
+            
+            if df is not None and not df.empty:
+                # Get last row (latest date)
+                last_row = df.iloc[-1]
+                
+                return {
+                    'code': stock_code,
+                    'date': pd.to_datetime(last_row['日期']).date(),
+                    'open': float(last_row['开盘']),
+                    'close': float(last_row['收盘']),
+                    'high': float(last_row['最高']),
+                    'low': float(last_row['最低']),
+                    'volume': float(last_row['成交量']),
+                    'amount': float(last_row['成交额']),
+                    'pct_chg': float(last_row['涨跌幅']),
+                    # Optional fields might be missing or need calculation
+                    'turnover_rate': float(last_row.get('换手率', 0)),
+                }
+            return None
+            
+        except Exception as e:
+            logger.error(f"[Akshare] 获取单只股票最新日线失败 ({stock_code}): {e}")
+            return None
+
+    def get_all_stocks_snapshot(self) -> Optional[pd.DataFrame]:
+        """
+        获取全市场所有股票的实时快照
+        
+        Returns:
+            DataFrame: 包含 code, name, price, change_pct, change_60d, total_mv 等列
+        """
+        import akshare as ak
+        try:
+            self._set_random_user_agent()
+            self._enforce_rate_limit()
+            
+            logger.info("正在获取全市场快照 (ak.stock_zh_a_spot_em)...")
+            df = ak.stock_zh_a_spot_em()
+            
+            if df is not None and not df.empty:
+                # 标准化列名
+                rename_map = {
+                    '代码': 'code',
+                    '名称': 'name',
+                    '最新价': 'price',
+                    '涨跌幅': 'change_pct',
+                    '涨跌额': 'change_amount',
+                    '振幅': 'amplitude',
+                    '成交量': 'volume',
+                    '成交额': 'amount',
+                    '今开': 'open',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '昨收': 'pre_close',
+                    '换手率': 'turnover_rate',
+                    '量比': 'volume_ratio',
+                    '市盈率-动态': 'pe',
+                    '市净率': 'pb',
+                    '总市值': 'total_mv',
+                    '流通市值': 'circ_mv',
+                    '60日涨跌幅': 'change_60d',
+                    '年初至今涨跌幅': 'change_ytd'
+                }
+                
+                # 重命名存在的列
+                # 注意：Akshare 返回的列名可能随版本变化，最好动态重命名
+                for k, v in rename_map.items():
+                    if k in df.columns:
+                        df.rename(columns={k: v}, inplace=True)
+                
+                # 转换数值类型
+                numeric_cols = [
+                    'price', 'change_pct', 'change_amount', 'amplitude', 'volume', 'amount', 
+                    'open', 'high', 'low', 'pre_close', 'turnover_rate', 'volume_ratio', 
+                    'pe', 'pb', 'total_mv', 'circ_mv', 'change_60d', 'change_ytd'
+                ]
+                
+                for col in numeric_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                
+                # 确保 code 是字符串
+                if 'code' in df.columns:
+                    df['code'] = df['code'].astype(str)
+                
+                return df
+            
+            return None
+                
+        except Exception as e:
+            logger.error(f"[Akshare] 获取全市场快照失败: {e}")
+            return None
+
     def fetch_ticket_list(self) -> Optional[pd.DataFrame]:
         """
         获取全市场股票列表 (仅获取数据，不保存)
         
         Returns:
-            pd.DataFrame: 包含 code, name 列
+            pd.DataFrame: 包含所有股票信息的完整 DataFrame
         """
         import akshare as ak
-        import pandas as pd # Ensure pandas is available locally if strictly scoped
+        import pandas as pd
         
         try:
             # 1. 配置代理 (如果环境变量中有配置)
@@ -1496,16 +1611,16 @@ class AkshareFetcher(BaseFetcher):
 
             logger.info(f"成功获取股票列表，列名: {df.columns.tolist()}, 前5行: {df.head().to_dict()}")
 
-            # 2. 数据清洗
+            # 3. 数据清洗 - 返回完整的 DataFrame
             if '代码' not in df.columns or '名称' not in df.columns:
                 logger.error(f"数据列名不匹配: {df.columns.tolist()}")
                 return None
-                
-            df_ret = df[['代码', '名称']].rename(columns={'代码': 'code', '名称': 'name'})
-            df_ret['code'] = df_ret['code'].astype(str)
-            df_ret['name'] = df_ret['name'].astype(str)
             
-            return df_ret
+            # 确保 code 是字符串
+            df['代码'] = df['代码'].astype(str)
+            df['名称'] = df['名称'].astype(str)
+            
+            return df
 
         except Exception as e:
             logger.error(f"获取全市场股票列表失败: {e}", exc_info=True)

@@ -298,7 +298,7 @@ class ApiEndpoints:
                 from src.storage import get_db
                 db = get_db()
                 stocks = db.get_watchlist_stocks()
-                return {"success": True, "data": [s.to_dict() for s in stocks]}
+                return {"success": True, "data": stocks}  # 已经是字典列表
             except Exception as e:
                 logger.error(f"获取自选股列表失败: {e}")
                 return {"success": False, "error": str(e)}

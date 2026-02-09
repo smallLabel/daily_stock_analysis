@@ -8,6 +8,7 @@
 import logging
 import asyncio
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 import os
 
 from nicegui import ui, app
@@ -15,8 +16,25 @@ from web.utils.theme import Colors, Styles, setup_theme
 from src.storage import get_db
 from web.services.core import get_analysis_service
 from src.enums import ReportType
+from data_provider import DataFetcherManager
+from data_provider.repository.stock_repo import StockDailyRepository
 
 logger = logging.getLogger(__name__)
+
+def format_datetime(value: Any) -> str:
+    """格式化时间显示"""
+    if not value:
+        return '-'
+    try:
+        if isinstance(value, str):
+            dt = datetime.fromisoformat(value.replace('Z', '+08:00'))
+        elif isinstance(value, datetime):
+            dt = value
+        else:
+            return str(value)
+        return dt.strftime('%m-%d %H:%M')
+    except Exception:
+        return str(value)[:16] if str(value) else '-'
 
 # Constants for Styling
 GLASS_BG = "bg-zinc-900/50"
@@ -29,6 +47,7 @@ class WatchlistState:
         self.watchlist: List[Dict[str, Any]] = []
         self.selected_stocks: List[str] = []
         self.is_loading: bool = False
+        self.quotes: Dict[str, Any] = {}
         self.analysis_results: Optional[Dict[str, Any]] = None
 
 state = WatchlistState()
@@ -36,18 +55,89 @@ state = WatchlistState()
 @ui.page('/watchlist')
 async def watchlist_page():
     """自选股选股页面"""
+    # Reset loading state
+    state.is_loading = False
+    
     setup_theme()
     
     # Refresh logic
-    async def load_watchlist():
+    # Refresh logic
+    async def load_watchlist(force_refresh: bool = False):
         try:
+            state.is_loading = True
+            watchlist_grid.refresh() # Show loading state if grid supports it or update UI elsewhere
+            
             db = get_db()
             stocks = db.get_watchlist_stocks()
-            state.watchlist = [s.to_dict() for s in stocks]
-            watchlist_grid.refresh()
+            state.watchlist = stocks
+            
+            # 1. Check data freshness
+            repo = StockDailyRepository()
+            last_update = await asyncio.get_event_loop().run_in_executor(None, repo.get_snapshot_status)
+            
+            should_fetch = True
+            if not force_refresh and last_update:
+                # Cache duration: 10 minutes
+                if (datetime.now() - last_update).total_seconds() < 600:
+                    should_fetch = False
+                    ui.notify(f'使用缓存行情数据 ({last_update.strftime("%H:%M:%S")})', type='positive', position='bottom-right')
+            
+            if should_fetch:
+                # 2. Fetch full market snapshot
+                dm = DataFetcherManager()
+                ui.notify('正在获取全市场实时行情...', type='info', position='bottom-right')
+                
+                try:
+                    # Run in executor with timeout (30s)
+                    snapshot_df = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(None, dm.get_all_stocks_snapshot),
+                        timeout=30.0
+                    )
+                    
+                    if snapshot_df is not None and not snapshot_df.empty:
+                        # Save to DB with timeout (60s)
+                        ui.notify(f'获取成功，正在更新 {len(snapshot_df)} 条数据...', type='info', position='bottom-right')
+                        saved_count = await asyncio.wait_for(
+                            asyncio.get_event_loop().run_in_executor(None, repo.save_snapshot, snapshot_df),
+                            timeout=60.0
+                        )
+                        ui.notify(f'数据库更新完成，新增/更新 {saved_count} 条记录', type='positive', position='bottom-right')
+                    else:
+                        ui.notify('获取全市场行情失败/为空，将显示历史数据', type='warning', position='bottom-right')
+                except asyncio.TimeoutError:
+                    ui.notify('获取/保存实时行情超时，将显示历史数据', type='warning', position='bottom-right')
+                    logger.warning("Fetch/Save snapshot timed out")
+                except Exception as e:
+                    ui.notify(f'获取实时行情出错: {e}', type='warning', position='bottom-right')
+                    logger.error(f"Error fetching snapshot: {e}")
+
+            # 3. Read latest data from DB for watchlist
+            codes = [s['stock_code'] for s in stocks]
+            if codes:
+                repo = StockDailyRepository()
+                # Run in executor as DB read might block
+                latest_data_map = await asyncio.get_event_loop().run_in_executor(None, repo.get_latest_batch, codes)
+                
+                # Convert to quotes format for UI
+                state.quotes = {}
+                for code, daily in latest_data_map.items():
+                    if daily:
+                        state.quotes[code] = {
+                            'price': daily.close,
+                            'change_pct': daily.pct_chg,
+                            'volume': daily.volume,
+                            'amount': daily.amount,
+                            # Add other fields if needed by UI
+                        }
+            
             update_summary_counts()
+            
         except Exception as e:
             ui.notify(f'加载自选股失败: {e}', type='negative')
+            logger.error(f"Error loading watchlist: {e}", exc_info=True)
+        finally:
+            state.is_loading = False
+            watchlist_grid.refresh()
 
     async def add_stock(code: str, name: str = ""):
         code = code.strip().upper()
@@ -64,7 +154,7 @@ async def watchlist_page():
             db = get_db()
             # Check existence
             existing = db.get_watchlist_stocks()
-            if any(s.stock_code == code for s in existing):
+            if any(s['stock_code'] == code for s in existing):
                 ui.notify(f'{code} 已在自选股中', type='info')
                 return
 
@@ -117,7 +207,7 @@ async def watchlist_page():
                  return
 
             db = get_db()
-            existing = {s.stock_code for s in db.get_watchlist_stocks()}
+            existing = {s['stock_code'] for s in db.get_watchlist_stocks()}
             new_codes = [c for c in valid_codes if c not in existing]
             
             if new_codes:
@@ -711,7 +801,7 @@ async def watchlist_page():
             
             with ui.row().classes('gap-2'):
                  ui.button('战绩回顾', icon='history', on_click=show_history_performance).props('flat color=green')
-                 ui.button('刷新列表', icon='refresh', on_click=load_watchlist).props('flat color=grey')
+                 ui.button('刷新列表', icon='refresh', on_click=lambda: load_watchlist(force_refresh=True)).props('flat color=grey')
 
             # Verification Button
             ui.button('验证昨日推荐', icon='rule', on_click=lambda: show_verification_results()).props('flat color=amber')
@@ -727,7 +817,6 @@ async def watchlist_page():
             # Actions
             with ui.row().classes('items-center gap-2'):
                 ui.button('OCR 截图导入', icon='document_scanner', on_click=open_ocr_dialog).props('outline color=amber')
-                ui.button('导入配置', icon='file_download', on_click=import_from_config).props('outline color=white')
                 ui.button('清空全部', icon='delete', on_click=clear_watchlist).props('outline color=red')
 
         # Content Area: Grid & Analysis
@@ -739,6 +828,13 @@ async def watchlist_page():
                 # Watchlist Grid/Table
                 @ui.refreshable
                 def render_grid():
+                    if state.is_loading:
+                         with ui.column().classes(f'w-full h-64 items-center justify-center p-8 bg-zinc-900/50 rounded-xl border border-dashed border-zinc-700'):
+                             ui.spinner('dots', size='3em', color='blue')
+                             ui.label('正在同步全市场行情...').classes('text-zinc-500 mt-4 animate-pulse')
+                             ui.label('（首次加载可能需要几秒钟）').classes('text-xs text-zinc-600')
+                         return
+
                     if not state.watchlist:
                          with ui.column().classes(f'w-full h-64 items-center justify-center {CARD_STYLE} border-dashed'):
                              ui.icon('sentiment_dissatisfied', size='48px', color='grey')
@@ -748,29 +844,81 @@ async def watchlist_page():
                     columns = [
                         {'name': 'code', 'label': '代码', 'field': 'stock_code', 'align': 'left', 'sortable': True},
                         {'name': 'name', 'label': '名称', 'field': 'stock_name', 'align': 'left', 'sortable': True},
-                        {'name': 'time', 'label': '加入时间', 'field': 'created_at', 'align': 'left', 'sortable': True, 'style': 'font-family: monospace'},
-                        {'name': 'result', 'label': '分析评分', 'field': 'result', 'align': 'center'}, # Placeholder for inline result
+                        {'name': 'price', 'label': '当前价', 'field': 'price', 'align': 'right', 'sortable': True},
+                        {'name': 'change', 'label': '涨跌幅', 'field': 'change_pct', 'align': 'right', 'sortable': True},
+                        {'name': 'volume', 'label': '成交量', 'field': 'volume', 'align': 'right', 'sortable': True},
+                        {'name': 'amount', 'label': '成交额', 'field': 'amount', 'align': 'right', 'sortable': True},
+                        {'name': 'result', 'label': 'AI评分', 'field': 'score', 'align': 'center', 'sortable': True},
                         {'name': 'actions', 'label': '操作', 'align': 'center'}
                     ]
                     
                     rows = []
                     for s in state.watchlist:
+                        code = s['stock_code']
                         r = s.copy()
-                        # Format timestamp (e.g. 2026-02-08 10:00:00 -> 02-08 10:00)
-                        if r.get('created_at'):
-                            try:
-                                r['created_at'] = r['created_at'][5:16] 
-                            except: pass
-                            
-                        # Enrich with analysis result if available
-                        if state.analysis_results and s['stock_code'] in state.analysis_results:
-                            res = state.analysis_results[s['stock_code']]
+                        r['created_at'] = format_datetime(r.get('created_at'))
+                        
+                        # Enrich with Realtime Quote
+                        if state.quotes and code in state.quotes:
+                            q = state.quotes[code]
+                            r['price'] = q.get('price', '-')
+                            r['change_pct'] = q.get('change_pct', 0)
+                            r['volume'] = q.get('volume', 0)
+                            r['amount'] = q.get('amount', 0)
+                        else:
+                            r['price'] = '-'
+                            r['change_pct'] = 0
+                            r['volume'] = '-'
+                            r['amount'] = '-'
+
+                        # Enrich with Analysis Result
+                        if state.analysis_results and code in state.analysis_results:
+                            res = state.analysis_results[code]
                             r['score'] = res.get('sentiment_score', 0)
                         else:
                             r['score'] = None
+                            
                         rows.append(r)
 
                     with ui.table(columns=columns, rows=rows, pagination=10).classes('w-full bg-zinc-900 text-white border-zinc-700') as table:
+                        # Price Column: Red for Up, Green for Down (A-share style)
+                        table.add_slot('body-cell-price', r'''
+                            <q-td :props="props">
+                                <span :class="props.row.change_pct > 0 ? 'text-red-500' : (props.row.change_pct < 0 ? 'text-green-500' : 'text-gray-400')">
+                                    {{ props.value }}
+                                </span>
+                            </q-td>
+                        ''')
+                        
+                        # Change Column: With Arrow and Color
+                        table.add_slot('body-cell-change', r'''
+                            <q-td :props="props">
+                                <div :class="props.row.change_pct > 0 ? 'text-red-500' : (props.row.change_pct < 0 ? 'text-green-500' : 'text-gray-400')">
+                                    <q-icon v-if="props.row.change_pct > 0" name="arrow_drop_up" />
+                                    <q-icon v-if="props.row.change_pct < 0" name="arrow_drop_down" />
+                                    {{ props.value > 0 ? '+' : '' }}{{ props.value }}%
+                                </div>
+                            </q-td>
+                        ''')
+                        
+                        # Volume Column: Format number
+                        table.add_slot('body-cell-volume', r'''
+                            <q-td :props="props">
+                                <div class="text-zinc-400 text-xs">
+                                    {{ (props.value / 10000).toFixed(1) }}万
+                                </div>
+                            </q-td>
+                        ''')
+                        
+                        # Amount Column: Format Currency
+                        table.add_slot('body-cell-amount', r'''
+                            <q-td :props="props">
+                                <div class="text-zinc-400 text-xs">
+                                    {{ (props.value / 100000000).toFixed(2) }}亿
+                                </div>
+                            </q-td>
+                        ''')
+
                         table.add_slot('body-cell-result', r'''
                             <q-td :props="props">
                                 <q-badge v-if="props.row.score != null" 
@@ -781,6 +929,7 @@ async def watchlist_page():
                                 <span v-else class="text-gray-500">-</span>
                             </q-td>
                         ''')
+                        
                         table.add_slot('body-cell-actions', r'''
                             <q-td :props="props">
                                 <q-btn icon="delete" flat round color="red" size="sm" 
@@ -802,6 +951,8 @@ async def watchlist_page():
                             dialog.open()
 
                         table.on('delete', confirm_delete)
+                        
+
 
                 watchlist_grid = render_grid
                 watchlist_grid()
@@ -974,7 +1125,9 @@ async def watchlist_page():
         limit_label.set_text(str(len(state.watchlist)))
 
     # Init
-    await load_watchlist()
+    # Init
+    # Defer loading to allow UI to render first
+    ui.timer(0.1, lambda: asyncio.create_task(load_watchlist()), once=True)
 
     # Add styles for table custom slots if needed
     ui.add_head_html('''

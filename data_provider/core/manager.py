@@ -584,6 +584,22 @@ class DataFetcherManager:
         logger.warning(f"所有数据源都无法获取板块 {sector_name} 的成分股")
         return []
     
+    async def get_stock_latest_daily(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """
+        获取单只股票的最新日线数据（用于 watchlist fallback）
+        """
+        for fetcher in self._fetchers:
+            try:
+                # 只在 AkshareFetcher 中实现了此方法，其他 fetcher 可能没有
+                if hasattr(fetcher, 'get_stock_latest_daily'):
+                    data = await fetcher.get_stock_latest_daily(stock_code)
+                    if data:
+                        return data
+            except Exception as e:
+                logger.warning(f"Fetcher {fetcher.name} fetch latest daily failed: {e}")
+                continue
+        return None
+
     def get_realtime_quotes(self, stock_codes: List[str]) -> Dict[str, Any]:
         """
         批量获取实时行情
@@ -599,11 +615,7 @@ class DataFetcherManager:
             try:
                 quote = self.get_realtime_quote(code)
                 if quote:
-                    result[code] = {
-                        'name': quote.name if hasattr(quote, 'name') else code,
-                        'current': quote.price if hasattr(quote, 'price') else 0.0,
-                        'change_pct': quote.change_pct if hasattr(quote, 'change_pct') else 0.0
-                    }
+                    result[code] = quote.to_dict()
             except Exception as e:
                 logger.debug(f"获取 {code} 实时行情失败: {e}")
                 continue
